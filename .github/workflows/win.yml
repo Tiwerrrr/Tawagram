@@ -64,7 +64,11 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: recursive
-          path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
+          path: src
+
+      - name: Move to short path.
+        run: |
+          move %GITHUB_WORKSPACE%\src %TBUILD%\%REPO_NAME%
 
       - name: First set up.
         shell: bash
