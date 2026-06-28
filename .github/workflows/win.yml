@@ -67,8 +67,9 @@ jobs:
           path: src
 
       - name: Move to short path.
+        shell: pwsh
         run: |
-          move %GITHUB_WORKSPACE%\src %TBUILD%\%REPO_NAME%
+          Move-Item -Path "$env:GITHUB_WORKSPACE\src" -Destination "$env:TBUILD\$env:REPO_NAME"
 
       - name: First set up.
         shell: bash
