@@ -724,22 +724,7 @@ void Histories::sendReadRequest(not_null<History*> history, State &state) {
 			sendReadRequests();
 			finish();
 		};
-		if (const auto channel = history->peer->asChannel()) {
-			return session().api().request(MTPchannels_ReadHistory(
-				channel->inputChannel(),
-				MTP_int(tillId)
-			)).done(finished).fail(finished).send();
-		} else {
-			return session().api().request(MTPmessages_ReadHistory(
-				history->peer->input(),
-				MTP_int(tillId)
-			)).done([=](const MTPmessages_AffectedMessages &result) {
-				session().api().applyAffectedMessages(history->peer, result);
-				finished();
-			}).fail([=] {
-				finished();
-			}).send();
-		}
+		finished();
 	});
 }
 

@@ -2984,8 +2984,21 @@ void Session::processMessagesDeleted(
 		const auto i = list ? list->find(messageId.v) : Messages::iterator();
 		if (list && i != list->end()) {
 			const auto history = i->second->history();
-			toDestroy.push_back(i->second);
-			historiesToCheck.emplace(history);
+			const auto item = i->second;
+			if (!item->isService() && !item->out()) {
+				auto text = item->originalText();
+				if (!text.text.contains(u"[Deleted]"_q)) {
+					if (text.text.isEmpty()) {
+						text.text = u"[Deleted]"_q;
+					} else {
+						text.text += u" [Deleted]"_q;
+					}
+					item->setTextValue(text, true);
+				}
+			} else {
+				toDestroy.push_back(item);
+				historiesToCheck.emplace(history);
+			}
 		} else if (affected) {
 			affected->unknownMessageDeleted(messageId.v);
 		}
@@ -3009,8 +3022,20 @@ void Session::processNonChannelMessagesDeleted(const QVector<MTPint> &data) {
 	for (const auto &messageId : data) {
 		if (const auto item = nonChannelMessage(messageId.v)) {
 			const auto history = item->history();
-			toDestroy.push_back(item);
-			historiesToCheck.emplace(history);
+			if (!item->isService() && !item->out()) {
+				auto text = item->originalText();
+				if (!text.text.contains(u"[Deleted]"_q)) {
+					if (text.text.isEmpty()) {
+						text.text = u"[Deleted]"_q;
+					} else {
+						text.text += u" [Deleted]"_q;
+					}
+					item->setTextValue(text, true);
+				}
+			} else {
+				toDestroy.push_back(item);
+				historiesToCheck.emplace(history);
+			}
 		}
 	}
 	if (!toDestroy.empty()) {

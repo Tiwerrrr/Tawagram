@@ -152,21 +152,6 @@ void SendProgressManager::send(const Key &key, int progress) {
 }
 
 bool SendProgressManager::skipRequest(const Key &key) const {
-	const auto user = key.history->peer->asUser();
-	if (!user) {
-		return false;
-	} else if (user->isSelf()) {
-		return true;
-	} else if (user->isBot() && !user->isSupport()) {
-		return true;
-	}
-	const auto recently = base::unixtime::now() - kSendTypingsToOfflineFor;
-	const auto lastseen = user->lastseen();
-	if (lastseen.isRecently()) {
-		return false;
-	} else if (const auto value = lastseen.onlineTill()) {
-		return (value < recently);
-	}
 	return true;
 }
 
