@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/profile/info_profile_phone_menu.h"
 #include "info/profile/info_profile_badge.h"
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "core/click_handler_types.h"
 #include "countries/countries_instance.h"
 #include "main/main_session.h"
@@ -134,6 +135,9 @@ rpl::producer<TextWithEntities> PhoneValue(not_null<UserData*> user) {
 			user,
 			UpdateFlag::PhoneNumber) | rpl::to_empty
 	) | rpl::map([=] {
+		if (Core::App().settings().readPref<bool>("streamer_mode", false)) {
+			return tr::marked(u"+• ••• ••• •• ••"_q);
+		}
 		return tr::marked(Ui::FormatPhone(user->phone()));
 	});
 }
