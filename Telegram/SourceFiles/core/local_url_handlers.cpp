@@ -644,6 +644,100 @@ bool ResolveContactToken(
 	return true;
 }
 
+bool ResolveUserById(
+		Window::SessionController *controller,
+		const Match &match,
+		const QVariant &context) {
+	if (!controller) {
+		return false;
+	}
+	const auto params = url_parse_params(
+		match->captured(1),
+		qthelp::UrlParamNameTransform::ToLower);
+
+	if (params.contains(u"acc"_q)) {
+		const auto switched = ApplyAccountIndex(
+			controller,
+			params.value(u"acc"_q).toInt());
+		if (switched) {
+			controller = switched;
+		} else {
+			controller->showToast(u"Could not activate account %1."_q.arg(
+				params.value(u"acc"_q)));
+			return false;
+		}
+	}
+
+	auto idStr = params.value(u"id"_q);
+	if (idStr.isEmpty()) {
+		idStr = params.value(u"user_id"_q);
+	}
+	if (idStr.isEmpty()) {
+		idStr = params.value(u"chat_id"_q);
+	}
+	if (idStr.isEmpty()) {
+		idStr = params.value(u"tgid"_q);
+	}
+	if (idStr.isEmpty()) {
+		idStr = params.value(u"peer_id"_q);
+	}
+	if (idStr.isEmpty()) {
+		return false;
+	}
+
+	bool ok = false;
+	const auto rawId = idStr.toLongLong(&ok);
+	if (!ok || !rawId) {
+		return false;
+	}
+
+	PeerId peerId;
+	if (rawId < 0) {
+		if (rawId <= -1000000000000LL) {
+			peerId = peerFromChannel(ChannelId(BareId(-rawId - 1000000000000LL)));
+		} else {
+			peerId = peerFromChat(ChatId(BareId(-rawId)));
+		}
+	} else if (params.contains(u"chat_id"_q) && (rawId > 1000000000000LL)) {
+		peerId = peerFromChannel(ChannelId(BareId(rawId - 1000000000000LL)));
+	} else {
+		peerId = peerFromUser(UserId(BareId(rawId)));
+	}
+
+	auto msgId = ShowAtUnreadMsgId;
+	if (const auto mId = params.value(u"message_id"_q).toInt()) {
+		msgId = mId;
+	} else if (const auto mId = params.value(u"msg_id"_q).toInt()) {
+		msgId = mId;
+	} else if (const auto mId = params.value(u"post"_q).toInt()) {
+		msgId = mId;
+	}
+
+	const auto peer = controller->session().data().peer(peerId);
+	controller->window().activate();
+
+	if (params.contains(u"profile"_q)) {
+		controller->showPeerInfo(peer);
+	} else {
+		auto sectionParams = Window::SectionShow(
+			Window::SectionShow::Way::ClearStack);
+		const auto myContext = context.value<ClickHandlerContext>();
+		sectionParams.origin = Window::SectionShow::OriginMessage{
+			myContext.itemId
+		};
+		controller->showPeerHistory(peer, sectionParams, msgId);
+	}
+
+	if (peerIsUser(peerId)) {
+		const auto user = peer->asUser();
+		if (user && !user->isLoaded() && !user->accessHash() && !user->isSelf()) {
+			controller->showToast(
+				u"User ID: %1 (not in local cache)"_q.arg(rawId));
+		}
+	}
+	return true;
+}
+
 bool ResolveUsernameOrPhone(
 		Window::SessionController *controller,
 		const Match &match,
@@ -727,6 +821,12 @@ bool ResolveUsernameOrPhone(
 	if (domainParam == u"telegrampassport"_q) {
 		return ShowPassportForm(controller, params);
 	} else if (!validDomain(domain) && !validPhone(phone)) {
+		if (params.contains(u"id"_q)
+			|| params.contains(u"user_id"_q)
+			|| params.contains(u"chat_id"_q)
+			|| params.contains(u"tgid"_q)) {
+			return ResolveUserById(controller, match, context);
+		}
 		return false;
 	}
 	using ResolveType = Window::ResolveType;
@@ -1938,6 +2038,10 @@ const std::vector<LocalUrlHandler> &LocalUrlHandlers() {
 			ShowWallPaper
 		},
 		{
+			u"^(?:user|openmessage|chat)/?\\?(.+)(?:#|$)"_q,
+			ResolveUserById
+		},
+		{
 			u"^resolve/?\\?(.+)(#|$)"_q,
 			ResolveUsernameOrPhone
 		},
@@ -2141,6 +2245,8 @@ QString TryConvertUrlToLocal(QString url) {
 			const auto params = contactMatch->captured(2);
 			return u"tg://contact?token="_q + encoded
 				+ (params.isEmpty() ? QString() : '&' + params);
+		} else if (const auto userMatch = regex_match(u"^(user|openmessage|chat)/?\\?(.+)$"_q, query, matchOptions)) {
+			return u"tg://"_q + userMatch->captured(1) + '?' + userMatch->captured(2);
 		} else if (const auto phoneMatch = regex_match(u"^\\+([0-9]+)(\\?|$)"_q, query, matchOptions)) {
 			const auto params = query.mid(phoneMatch->captured(0).size()).toString();
 			return u"tg://resolve?phone="_q + phoneMatch->captured(1) + (params.isEmpty() ? QString() : '&' + params);
