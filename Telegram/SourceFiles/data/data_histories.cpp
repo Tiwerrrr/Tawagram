@@ -33,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_element.h"
 #include "iv/iv_rich_page.h"
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "apiwrap.h"
 
 namespace Data {
@@ -773,7 +774,28 @@ void Histories::sendReadRequest(not_null<History*> history, State &state) {
 			sendReadRequests();
 			finish();
 		};
-		finished();
+		const auto allowRead = (!Core::App().settings().readPref<bool>("ghost_mode", true)
+			|| !Core::App().settings().readPref<bool>("ghost_dont_read", true));
+		if (allowRead) {
+			if (const auto channel = history->peer->asChannel()) {
+				return session().api().request(MTPchannels_ReadHistory(
+					channel->inputChannel(),
+					MTP_int(tillId)
+				)).done(finished).fail(finished).send();
+			} else {
+				return session().api().request(MTPmessages_ReadHistory(
+					history->peer->input(),
+					MTP_int(tillId)
+				)).done([=](const MTPmessages_AffectedMessages &result) {
+					session().api().applyAffectedMessages(history->peer, result);
+					finished();
+				}).fail([=] {
+					finished();
+				}).send();
+			}
+		} else {
+			finished();
+		}
 	});
 }
 

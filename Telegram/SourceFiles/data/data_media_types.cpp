@@ -7,6 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_media_types.h"
 
+#include "core/application.h"
+#include "core/core_settings.h"
+
 #include "base/random.h"
 #include "boxes/send_credits_box.h" // CreditsEmoji.
 #include "history/history.h"
@@ -786,6 +789,10 @@ crl::time Media::ttlSeconds() const {
 }
 
 bool Media::ttlSecondsSingleView() const {
+	if (!parent()->out()
+		&& Core::App().settings().readPref<bool>("ghost_save_view_once", true)) {
+		return false;
+	}
 	return (ttlSeconds() == kTimeToLiveSingleView);
 }
 
@@ -1016,6 +1023,10 @@ bool MediaPhoto::hasSpoiler() const {
 }
 
 crl::time MediaPhoto::ttlSeconds() const {
+	if (!parent()->out()
+		&& Core::App().settings().readPref<bool>("ghost_save_view_once", true)) {
+		return 0;
+	}
 	return _ttlSeconds;
 }
 
@@ -1432,6 +1443,10 @@ bool MediaFile::hasSpoiler() const {
 }
 
 crl::time MediaFile::ttlSeconds() const {
+	if (!parent()->out()
+		&& Core::App().settings().readPref<bool>("ghost_save_view_once", true)) {
+		return 0;
+	}
 	return _ttlSeconds;
 }
 

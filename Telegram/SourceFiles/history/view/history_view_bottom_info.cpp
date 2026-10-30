@@ -7,6 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_bottom_info.h"
 
+#include "core/application.h"
+#include "core/core_settings.h"
+
 #include "ui/chat/message_bubble.h"
 #include "ui/chat/chat_style.h"
 #include "ui/effects/reaction_fly_animation.h"
@@ -498,14 +501,17 @@ void BottomInfo::layoutDateText() {
 		: _data.scheduleRepeatPeriod
 		? (SchedulePeriodText(_data.scheduleRepeatPeriod) + ' ')
 		: QString();
+	const auto deletedBadge = (_data.flags & Data::Flag::Deleted)
+		? (Core::App().settings().readPref<QString>("ghost_deleted_mark", u"[DELETED]"_q) + ' ')
+		: QString();
 	const auto author = _data.author;
 	const auto prefix = !author.isEmpty() ? u", "_q : QString();
 	const auto date = editedPrimary
-		? FormatEditedDate(_data.date, _data.editedDate)
-		: edited + ((_data.flags
+		? (FormatEditedDate(_data.date, _data.editedDate) + ' ' + deletedBadge)
+		: (edited + deletedBadge + ((_data.flags
 			& (Data::Flag::ForwardedDate | Data::Flag::FullDate))
 		? Ui::FormatDateTimeSavedFrom(_data.date)
-		: QLocale().toString(_data.date.time(), QLocale::ShortFormat));
+		: QLocale().toString(_data.date.time(), QLocale::ShortFormat)));
 	const auto afterAuthor = prefix + date;
 	const auto afterAuthorWidth = st::msgDateFont->width(afterAuthor);
 	const auto authorWidth = st::msgDateFont->width(author);
@@ -697,6 +703,9 @@ BottomInfo::Data BottomInfoDataFromMessage(not_null<Message*> message) {
 			result.flags |= Flag::EditedPrimary;
 			result.editedDate = base::unixtime::parse(editedDate);
 		}
+	}
+	if (item->isDeleted()) {
+		result.flags |= Flag::Deleted;
 	}
 	if (IsAnchoredEphemeral(item)) {
 		result.flags |= Flag::Updated;

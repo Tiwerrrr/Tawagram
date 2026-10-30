@@ -361,6 +361,12 @@ public:
 	[[nodiscard]] bool isLegacyMessage() const {
 		return _flags & MessageFlag::Legacy;
 	}
+	[[nodiscard]] bool isDeleted() const {
+		return _isDeleted;
+	}
+	void setIsDeleted(bool val = true) {
+		_isDeleted = val;
+	}
 	[[nodiscard]] bool canBeSelected() const;
 	[[nodiscard]] bool isFakeAboutView() const {
 		return _flags & MessageFlag::FakeAboutView;
@@ -821,6 +827,7 @@ private:
 	const not_null<PeerData*> _from;
 	mutable PeerData *_displayFrom = nullptr;
 	mutable MessageFlags _flags = 0;
+	bool _isDeleted = false;
 
 	TextWithEntities _text;
 

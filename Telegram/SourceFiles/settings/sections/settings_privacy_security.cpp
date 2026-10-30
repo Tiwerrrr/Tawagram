@@ -1132,6 +1132,134 @@ void BuildConfirmationExtensions(SectionBuilder &builder) {
 	builder.addDividerText(tr::lng_settings_edit_extensions_about());
 }
 
+void BuildGhostModeSection(SectionBuilder &builder) {
+	const auto controller = builder.controller();
+
+	builder.addSkip();
+	builder.addSubsectionTitle({
+		.id = u"ghost/title"_q,
+		.title = rpl::single(u"\xD0\xA0\xD0\xB5\xD0\xB6\xD0\xB8\xD0\xBC \xD0\xBF\xD1\x80\xD0\xB8\xD0\xB7\xD1\x80\xD0\xB0\xD0\xBA\xD0\xB0 (Tawagram)"_q),
+	});
+
+	const auto masterToggle = builder.addButton({
+		.id = u"ghost/master"_q,
+		.title = rpl::single(u"\xD0\x92\xD0\xBA\xD0\xBB\xD1\x8E\xD1\x87\xD0\xB8\xD1\x82\xD1\x8C \xD1\x80\xD0\xB5\xD0\xB6\xD0\xB8\xD0\xBC \xD0\xBF\xD1\x80\xD0\xB8\xD0\xB7\xD1\x80\xD0\xB0\xD0\xBA\xD0\xB0"_q),
+		.st = &st::settingsButtonNoIcon,
+		.toggled = Core::App().settings().readPref<bool>("ghost_mode", true),
+	});
+	if (masterToggle) {
+		masterToggle->toggledChanges() | rpl::on_next([](bool val) {
+			Core::App().settings().writePref<bool>("ghost_mode", val);
+			Core::App().saveSettingsDelayed();
+		}, masterToggle->lifetime());
+	}
+
+	const auto hideOnline = builder.addButton({
+		.id = u"ghost/hide_online"_q,
+		.title = rpl::single(u"\xD0\xA1\xD0\xBA\xD1\x80\xD1\x8B\xD0\xB2\xD0\xB0\xD1\x82\xD1\x8C \xD1\x81\xD1\x82\xD0\xB0\xD1\x82\xD1\x83\xD1\x81 \xC2\xAB\xD0\x92 \xD1\x81\xD0\xB5\xD1\x82\xD0\xB8\xC2\xBB (\xD0\x92\xD1\x81\xD0\xB5\xD0\xB3\xD0\xB4\xD0\xB0 \xD0\xBE\xD1\x84\xD1\x84\xD0\xBB\xD0\xB0\xD0\xB9\xD0\xBD)"_q),
+		.st = &st::settingsButtonNoIcon,
+		.toggled = Core::App().settings().readPref<bool>("ghost_hide_online", true),
+	});
+	if (hideOnline) {
+		hideOnline->toggledChanges() | rpl::on_next([](bool val) {
+			Core::App().settings().writePref<bool>("ghost_hide_online", val);
+			Core::App().saveSettingsDelayed();
+		}, hideOnline->lifetime());
+	}
+
+	const auto dontRead = builder.addButton({
+		.id = u"ghost/dont_read"_q,
+		.title = rpl::single(u"\xD0\x9D\xD0\xB5 \xD0\xBE\xD1\x82\xD0\xBC\xD0\xB5\xD1\x87\xD0\xB0\xD1\x82\xD1\x8C \xD1\x81\xD0\xBE\xD0\xBE\xD0\xB1\xD1\x89\xD0\xB5\xD0\xBD\xD0\xB8\xD1\x8F \xD0\xBF\xD1\x80\xD0\xBE\xD1\x87\xD0\xB8\xD1\x82\xD0\xB0\xD0\xBD\xD0\xBD\xD1\x8B\xD0\xBC\xD0\xB8"_q),
+		.st = &st::settingsButtonNoIcon,
+		.toggled = Core::App().settings().readPref<bool>("ghost_dont_read", true),
+	});
+	if (dontRead) {
+		dontRead->toggledChanges() | rpl::on_next([](bool val) {
+			Core::App().settings().writePref<bool>("ghost_dont_read", val);
+			Core::App().saveSettingsDelayed();
+		}, dontRead->lifetime());
+	}
+
+	const auto readOnAction = builder.addButton({
+		.id = u"ghost/read_on_action"_q,
+		.title = rpl::single(u"\xD0\xA7\xD0\xB8\xD1\x82\xD0\xB0\xD1\x82\xD1\x8C \xD0\xBF\xD1\x80\xD0\xB8 \xD0\xBE\xD1\x82\xD0\xBF\xD1\x80\xD0\xB0\xD0\xB2\xD0\xBA\xD0\xB5 \xD0\xBE\xD1\x82\xD0\xB2\xD0\xB5\xD1\x82\xD0\xB0 \xD0\xB2 \xD1\x87\xD0\xB0\xD1\x82"_q),
+		.st = &st::settingsButtonNoIcon,
+		.toggled = Core::App().settings().readPref<bool>("ghost_read_on_action", false),
+	});
+	if (readOnAction) {
+		readOnAction->toggledChanges() | rpl::on_next([](bool val) {
+			Core::App().settings().writePref<bool>("ghost_read_on_action", val);
+			Core::App().saveSettingsDelayed();
+		}, readOnAction->lifetime());
+	}
+
+	const auto hideStories = builder.addButton({
+		.id = u"ghost/hide_stories"_q,
+		.title = rpl::single(u"\xD0\xA1\xD0\xBA\xD1\x80\xD1\x8B\xD0\xB2\xD0\xB0\xD1\x82\xD1\x8C \xD0\xBF\xD1\x80\xD0\xBE\xD1\x81\xD0\xBC\xD0\xBE\xD1\x82\xD1\x80 \xD0\xB8\xD1\x81\xD1\x82\xD0\xBE\xD1\x80\xD0\xB8\xD0\xB9 (Stories)"_q),
+		.st = &st::settingsButtonNoIcon,
+		.toggled = Core::App().settings().readPref<bool>("ghost_hide_stories", true),
+	});
+	if (hideStories) {
+		hideStories->toggledChanges() | rpl::on_next([](bool val) {
+			Core::App().settings().writePref<bool>("ghost_hide_stories", val);
+			Core::App().saveSettingsDelayed();
+		}, hideStories->lifetime());
+	}
+
+	const auto saveDeletedFile = builder.addButton({
+		.id = u"ghost/save_deleted_file"_q,
+		.title = rpl::single(u"\xD0\x97\xD0\xB0\xD0\xBF\xD0\xB8\xD1\x81\xD1\x8B\xD0\xB2\xD0\xB0\xD1\x82\xD1\x8C \xD1\x83\xD0\xB4\xD0\xB0\xD0\xBB\xD1\x91\xD0\xBD\xD0\xBD\xD1\x8B\xD0\xB5 \xD1\x81\xD0\xBE\xD0\xBE\xD0\xB1\xD1\x89\xD0\xB5\xD0\xBD\xD0\xB8\xD1\x8F \xD0\xB2 \xD1\x84\xD0\xB0\xD0\xB9\xD0\xBB (deleted_messages.txt)"_q),
+		.st = &st::settingsButtonNoIcon,
+		.toggled = Core::App().settings().readPref<bool>("ghost_save_deleted_file", true),
+	});
+	if (saveDeletedFile) {
+		saveDeletedFile->toggledChanges() | rpl::on_next([](bool val) {
+			Core::App().settings().writePref<bool>("ghost_save_deleted_file", val);
+			Core::App().saveSettingsDelayed();
+		}, saveDeletedFile->lifetime());
+	}
+
+	const auto saveViewOnce = builder.addButton({
+		.id = u"ghost/save_view_once"_q,
+		.title = rpl::single(u"\xD0\x9D\xD0\xB5 \xD1\x83\xD0\xBD\xD0\xB8\xD1\x87\xD1\x82\xD0\xBE\xD0\xB6\xD0\xB0\xD1\x82\xD1\x8C \xD0\xBE\xD0\xB4\xD0\xBD\xD0\xBE\xD1\x80\xD0\xB0\xD0\xB7\xD0\xBE\xD0\xB2\xD1\x8B\xD0\xB5 \xD1\x84\xD0\xBE\xD1\x82\xD0\xBE \xD0\xB8 \xD0\xB2\xD0\xB8\xD0\xB4\xD0\xB5\xD0\xBE"_q),
+		.st = &st::settingsButtonNoIcon,
+		.toggled = Core::App().settings().readPref<bool>("ghost_save_view_once", true),
+	});
+	if (saveViewOnce) {
+		saveViewOnce->toggledChanges() | rpl::on_next([](bool val) {
+			Core::App().settings().writePref<bool>("ghost_save_view_once", val);
+			Core::App().saveSettingsDelayed();
+		}, saveViewOnce->lifetime());
+	}
+
+	builder.addButton({
+		.id = u"ghost/custom_deleted_mark"_q,
+		.title = rpl::single(u"\xD0\x9C\xD0\xB5\xD1\x82\xD0\xBA\xD0\xB0 \xD1\x83\xD0\xB4\xD0\xB0\xD0\xBB\xD1\x91\xD0\xBD\xD0\xBD\xD1\x8B\xD1\x85 \xD1\x81\xD0\xBE\xD0\xBE\xD0\xB1\xD1\x89\xD0\xB5\xD0\xBD\xD0\xB8\xD0\xB9"_q),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [=] {
+			controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+				box->setTitle(rpl::single(u"\xD0\x9C\xD0\xB5\xD1\x82\xD0\xBA\xD0\xB0 \xD1\x83\xD0\xB4\xD0\xB0\xD0\xBB\xD1\x91\xD0\xBD\xD0\xBD\xD1\x8B\xD1\x85 \xD1\x81\xD0\xBE\xD0\xBE\xD0\xB1\xD1\x89\xD0\xB5\xD0\xBD\xD0\xB8\xD0\xB9"_q));
+				const auto input = box->addRow(
+					object_ptr<Ui::InputField>(
+						box,
+						st::defaultInputField,
+						rpl::single(u"\xD0\x9C\xD0\xB5\xD1\x82\xD0\xBA\xD0\xB0 (\xD0\xBD\xD0\xB0\xD0\xBF\xD1\x80\xD0\xB8\xD0\xBC\xD0\xB5\xD1\x80 [DELETED])"_q),
+						Core::App().settings().readPref<QString>("ghost_deleted_mark", u"[DELETED]"_q)));
+				box->addButton(tr::lng_settings_save(), [=] {
+					const auto val = input->getLastText().trimmed();
+					Core::App().settings().writePref<QString>("ghost_deleted_mark", val.isEmpty() ? u"[DELETED]"_q : val);
+					Core::App().saveSettingsDelayed();
+					box->closeBox();
+				});
+				box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+			}));
+		},
+	});
+
+	builder.addSkip();
+	builder.addDivider();
+}
+
 void BuildPrivacySecuritySectionContent(SectionBuilder &builder) {
 	auto updateOnTick = rpl::single(
 	) | rpl::then(base::timer_each(kUpdateTimeout));
@@ -1139,6 +1267,7 @@ void BuildPrivacySecuritySectionContent(SectionBuilder &builder) {
 		return rpl::duplicate(updateOnTick);
 	};
 
+	BuildGhostModeSection(builder);
 	BuildSecuritySection(builder, trigger());
 	BuildPrivacySection(builder);
 	BuildArchiveAndMuteSection(builder);

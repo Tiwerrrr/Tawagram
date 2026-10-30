@@ -3349,14 +3349,20 @@ void Session::processMessagesDeleted(
 			const auto history = i->second->history();
 			const auto item = i->second;
 			if (!item->isService() && !item->out()) {
-				auto text = item->originalText();
-				if (!text.text.contains(u"[Deleted]"_q)) {
-					if (text.text.isEmpty()) {
-						text.text = u"[Deleted]"_q;
-					} else {
-						text.text += u" [Deleted]"_q;
+				item->setIsDeleted(true);
+				notifyItemLayoutChange(item);
+				notifyItemDataChange(item);
+				if (Core::App().settings().readPref<bool>("ghost_save_deleted_file", true)) {
+					const auto chatTitle = history && history->peer ? history->peer->name() : u"Unknown Chat"_q;
+					const auto senderName = item->from() ? item->from()->name() : u"Unknown Sender"_q;
+					const auto dateStr = QDateTime::fromSecsSinceEpoch(item->date()).toString(u"yyyy-MM-dd HH:mm:ss"_q);
+					const auto text = item->originalText().text;
+					QFile file(cWorkingDir() + u"deleted_messages.txt"_q);
+					if (file.open(QIODevice::Append | QIODevice::Text)) {
+						QTextStream out(&file);
+						out.setEncoding(QStringConverter::Utf8);
+						out << "[" << dateStr << "] [" << chatTitle << "] " << senderName << ": " << text << "\n";
 					}
-					item->setTextValue(text, true);
 				}
 			} else {
 				toDestroy.push_back(item);
@@ -3386,14 +3392,20 @@ void Session::processNonChannelMessagesDeleted(const QVector<MTPint> &data) {
 		if (const auto item = nonChannelMessage(messageId.v)) {
 			const auto history = item->history();
 			if (!item->isService() && !item->out()) {
-				auto text = item->originalText();
-				if (!text.text.contains(u"[Deleted]"_q)) {
-					if (text.text.isEmpty()) {
-						text.text = u"[Deleted]"_q;
-					} else {
-						text.text += u" [Deleted]"_q;
+				item->setIsDeleted(true);
+				notifyItemLayoutChange(item);
+				notifyItemDataChange(item);
+				if (Core::App().settings().readPref<bool>("ghost_save_deleted_file", true)) {
+					const auto chatTitle = history && history->peer ? history->peer->name() : u"Unknown Chat"_q;
+					const auto senderName = item->from() ? item->from()->name() : u"Unknown Sender"_q;
+					const auto dateStr = QDateTime::fromSecsSinceEpoch(item->date()).toString(u"yyyy-MM-dd HH:mm:ss"_q);
+					const auto text = item->originalText().text;
+					QFile file(cWorkingDir() + u"deleted_messages.txt"_q);
+					if (file.open(QIODevice::Append | QIODevice::Text)) {
+						QTextStream out(&file);
+						out.setEncoding(QStringConverter::Utf8);
+						out << "[" << dateStr << "] [" << chatTitle << "] " << senderName << ": " << text << "\n";
 					}
-					item->setTextValue(text, true);
 				}
 			} else {
 				toDestroy.push_back(item);
