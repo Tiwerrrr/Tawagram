@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "core/application.h"
 
+#include "plugins/plugin_manager.h"
+
 #include "data/data_abstract_structure.h"
 #include "data/data_channel.h"
 #include "data/data_forum.h"
@@ -563,6 +565,7 @@ void Application::startSettingsAndBackground() {
 	checkSystemDarkMode();
 	Ui::SetScreenReaderModeDisabled(
 		settings().readPref<bool>(kScreenReaderModeDisabledKey));
+	Plugins::Manager::Instance().init();
 }
 
 void Application::checkSystemDarkMode() {

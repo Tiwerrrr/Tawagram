@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/history_widget.h"
 
+#include "plugins/plugin_manager.h"
+
 #include "api/api_compose_with_ai.h"
 #include "api/api_editing.h"
 #include "api/api_bot.h"
@@ -5984,6 +5986,15 @@ void HistoryWidget::sendTextWithTags(
 	if (!options.scheduled) {
 		_cornerButtons.clearReplyReturns();
 	}
+
+	const auto processedText = Plugins::Manager::Instance().processOutgoingMessage(textWithTags.text);
+	if (!processedText) {
+		if (done) {
+			done();
+		}
+		return;
+	}
+	textWithTags.text = *processedText;
 
 	auto message = Api::MessageToSend(prepareSendAction(options));
 	message.textWithTags = textWithTags;

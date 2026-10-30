@@ -1976,6 +1976,8 @@ PRIVATE
     settings/sections/settings_notifications.h
     settings/sections/settings_privacy_security.cpp
     settings/sections/settings_privacy_security.h
+    plugins/plugin_manager.cpp
+    plugins/plugin_manager.h
     settings/sections/settings_notifications_reactions.cpp
     settings/sections/settings_notifications_reactions.h
     settings/sections/settings_notifications_type.cpp

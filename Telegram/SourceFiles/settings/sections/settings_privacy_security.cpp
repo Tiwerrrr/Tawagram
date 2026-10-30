@@ -26,6 +26,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/click_handler_types.h"
 #include "core/core_cloud_password.h"
 #include "core/core_settings.h"
+#include "core/file_utilities.h"
+#include "plugins/plugin_manager.h"
 #include "core/update_checker.h"
 #include "data/components/passkeys.h"
 #include "data/components/top_peers.h"
@@ -1267,7 +1269,57 @@ void BuildPrivacySecuritySectionContent(SectionBuilder &builder) {
 		return rpl::duplicate(updateOnTick);
 	};
 
+void BuildPluginsSection(SectionBuilder &builder) {
+	builder.addSkip();
+	builder.addSubsectionTitle({
+		.id = u"plugins/title"_q,
+		.title = rpl::single(u"\xD0\x9F\xD0\xBB\xD0\xB0\xD0\xB3\xD0\xB8\xD0\xBD\xD1\x8B (Tawagram Plugins)"_q),
+	});
+
+	builder.addButton({
+		.id = u"plugins/open_folder"_q,
+		.title = rpl::single(u"\xD0\x9E\xD1\x82\xD0\xBA\xD1\x80\xD1\x8B\xD1\x82\xD1\x8C \xD0\xBF\xD0\xB0\xD0\xBF\xD0\xBA\xD1\x83 \xD1\x81 \xD0\xBF\xD0\xBB\xD0\xB0\xD0\xB3\xD0\xB8\xD0\xBD\xD0\xB0\xD0\xBC\xD0\xB8"_q),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [=] {
+			File::OpenUrl(Plugins::Manager::Instance().pluginsPath());
+		},
+	});
+
+	builder.addButton({
+		.id = u"plugins/reload"_q,
+		.title = rpl::single(u"\xD0\x9F\xD0\xB5\xD1\x80\xD0\xB5\xD0\xB7\xD0\xB0\xD0\xB3\xD1\x80\xD1\x83\xD0\xB7\xD0\xB8\xD1\x82\xD1\x8C \xD0\xBF\xD0\xBB\xD0\xB0\xD0\xB3\xD0\xB8\xD0\xBD\xD1\x8B"_q),
+		.st = &st::settingsButtonNoIcon,
+		.onClick = [=] {
+			Plugins::Manager::Instance().reload();
+		},
+	});
+
+	const auto &list = Plugins::Manager::Instance().plugins();
+	for (const auto &plugin : list) {
+		const auto id = plugin.id;
+		const auto title = plugin.name + u" (v"_q + plugin.version + u")"_q;
+		const auto toggle = builder.addButton({
+			.id = u"plugins/item_"_q + id,
+			.title = rpl::single(title),
+			.st = &st::settingsButtonNoIcon,
+			.toggled = plugin.enabled,
+		});
+		if (toggle) {
+			toggle->toggledChanges() | rpl::on_next([=](bool val) {
+				Plugins::Manager::Instance().setPluginEnabled(id, val);
+			}, toggle->lifetime());
+		}
+		if (!plugin.description.isEmpty()) {
+			builder.addDividerText(rpl::single(plugin.description));
+		}
+	}
+
+	builder.addSkip();
+	builder.addDivider();
+}
+
 	BuildGhostModeSection(builder);
+	BuildPluginsSection(builder);
 	BuildSecuritySection(builder, trigger());
 	BuildPrivacySection(builder);
 	BuildArchiveAndMuteSection(builder);
