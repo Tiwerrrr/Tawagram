@@ -714,6 +714,32 @@ bool ResolveUserById(
 	}
 
 	const auto peer = controller->session().data().peer(peerId);
+
+	if (peerIsUser(peerId)) {
+		const auto user = peer->asUser();
+		if (!user->isLoaded() || user->name().isEmpty()) {
+			user->setName(
+				QString::number(rawId),
+				QString(),
+				QString(),
+				QString());
+			user->setLoadedStatus(PeerData::LoadedStatus::Normal);
+		}
+	} else if (peerIsChat(peerId)) {
+		const auto chat = peer->asChat();
+		if (!chat->isLoaded() || chat->name().isEmpty()) {
+			chat->setName(QString::number(rawId));
+			chat->setLoadedStatus(PeerData::LoadedStatus::Normal);
+		}
+	} else if (peerIsChannel(peerId)) {
+		const auto channel = peer->asChannel();
+		if (!channel->isLoaded() || channel->name().isEmpty()) {
+			channel->setName(QString::number(rawId), QString());
+			channel->setLoadedStatus(PeerData::LoadedStatus::Normal);
+		}
+	}
+
+	controller->session().api().requestFullPeer(peer);
 	controller->window().activate();
 
 	if (params.contains(u"profile"_q)) {
@@ -726,14 +752,6 @@ bool ResolveUserById(
 			myContext.itemId
 		};
 		controller->showPeerHistory(peer, sectionParams, msgId);
-	}
-
-	if (peerIsUser(peerId)) {
-		const auto user = peer->asUser();
-		if (user && !user->isLoaded() && !user->accessHash() && !user->isSelf()) {
-			controller->showToast(
-				u"User ID: %1 (not in local cache)"_q.arg(rawId));
-		}
 	}
 	return true;
 }

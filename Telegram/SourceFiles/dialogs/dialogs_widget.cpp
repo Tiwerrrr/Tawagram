@@ -3143,6 +3143,27 @@ void Widget::submit() {
 		_inner->selectSkip(1);
 		_inner->chooseRow();
 	} else {
+		const auto text = _search ? _search->getLastText().trimmed() : QString();
+		if (text.startsWith(u"tg://"_q, Qt::CaseInsensitive)
+			|| text.startsWith(u"t.me/"_q, Qt::CaseInsensitive)
+			|| text.startsWith(u"https://t.me/"_q, Qt::CaseInsensitive)) {
+			if (Core::App().openLocalUrl(text, {})) {
+				escape();
+				return;
+			}
+		} else {
+			bool ok = false;
+			const auto id = text.toLongLong(&ok);
+			if (ok && id != 0) {
+				const auto url = (id < 0)
+					? u"tg://chat?id="_q + QString::number(id)
+					: u"tg://user?id="_q + QString::number(id);
+				if (Core::App().openLocalUrl(url, {})) {
+					escape();
+					return;
+				}
+			}
+		}
 		search();
 	}
 }
