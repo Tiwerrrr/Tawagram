@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "core/application.h"
 #include "core/core_settings.h"
+#include "settings.h"
 
 #include <QtCore/QDir>
 #include <QtCore/QFile>

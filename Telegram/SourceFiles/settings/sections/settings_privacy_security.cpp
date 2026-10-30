@@ -1301,12 +1301,6 @@ void BuildGhostModeSection(SectionBuilder &builder) {
 	builder.addDivider();
 }
 
-void BuildPrivacySecuritySectionContent(SectionBuilder &builder) {
-	auto updateOnTick = rpl::single(
-	) | rpl::then(base::timer_each(kUpdateTimeout));
-	const auto trigger = [&] {
-		return rpl::duplicate(updateOnTick);
-	};
 
 void BuildPluginsSection(SectionBuilder &builder) {
 	builder.addSkip();
@@ -1356,6 +1350,15 @@ void BuildPluginsSection(SectionBuilder &builder) {
 	builder.addSkip();
 	builder.addDivider();
 }
+
+
+void BuildPrivacySecuritySectionContent(SectionBuilder &builder) {
+	auto updateOnTick = rpl::single(
+	) | rpl::then(base::timer_each(kUpdateTimeout));
+	const auto trigger = [&] {
+		return rpl::duplicate(updateOnTick);
+	};
+
 
 	BuildGhostModeSection(builder);
 	BuildPluginsSection(builder);
