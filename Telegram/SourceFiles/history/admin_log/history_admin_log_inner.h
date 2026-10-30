@@ -96,6 +96,14 @@ public:
 	void saveState(not_null<SectionMemento*> memento);
 	void restoreState(not_null<SectionMemento*> memento);
 
+	// Whether the top / bottom edge has no more events to page in.
+	[[nodiscard]] bool loadedAtTop() const {
+		return _upLoaded;
+	}
+	[[nodiscard]] bool loadedAtBottom() const {
+		return _downLoaded;
+	}
+
 	// Empty "flags" means all events.
 	void applyFilter(FilterValue &&value);
 	void applySearch(const QString &query);
@@ -173,6 +181,7 @@ public:
 		not_null<const HistoryView::Element*> view) override;
 	bool elementHideTopicButton(
 		not_null<const HistoryView::Element*> view) override;
+	HistoryView::GramReadLine *elementGramReadLine() override;
 
 	~InnerWidget();
 
@@ -244,6 +253,10 @@ private:
 	void suggestRestrictParticipant(
 		not_null<PeerData*> participant,
 		FullMsgId realId);
+	void showUnbanMenu(
+		not_null<Ui::PopupMenu*> parent,
+		not_null<PeerData*> participant);
+	void unbanParticipant(not_null<PeerData*> participant);
 	void restrictParticipant(
 		not_null<PeerData*> participant,
 		ChatRestrictionsInfo oldRights,
@@ -251,6 +264,10 @@ private:
 	void restrictParticipantDone(
 		not_null<PeerData*> participant,
 		ChatRestrictionsInfo rights);
+	void requestBanState(
+		not_null<PeerData*> participant,
+		Fn<void(std::optional<bool> banned)> done);
+	void setParticipantBanned(not_null<PeerData*> participant, bool banned);
 	[[nodiscard]] bool canRestrict() const;
 
 	void requestAdmins();
@@ -368,6 +385,8 @@ private:
 	base::flat_map<not_null<PeerData*>, Ui::PeerUserpicView> _userpicsCache;
 	base::flat_map<FullMsgId, MsgId> _realIdsForReport;
 	base::flat_map<MsgId, not_null<HistoryItem*>> _itemsByRealMsgId;
+	base::flat_map<PeerId, bool> _banStates;
+	PeerData *_showUnbanFor = nullptr;
 
 	// Delete event grouping.
 	struct DisplayEntry {
@@ -389,6 +408,7 @@ private:
 	Ui::Animations::Simple _scrollToAnimation;
 	bool _skipScrollRestore = false;
 	bool _skipUnreadEventPrune = false;
+	bool _beingDestroyed = false;
 
 	int _itemsTop = 0;
 	int _itemsWidth = 0;

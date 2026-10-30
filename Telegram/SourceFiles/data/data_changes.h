@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class History;
 class PeerData;
+class UserData;
 class HistoryItem;
 
 namespace Dialogs {
@@ -123,8 +124,11 @@ struct PeerUpdate {
 		GroupCall           = (1ULL << 55),
 		ManagedBot          = (1ULL << 56),
 
+		MainProfileTab      = (1ULL << 57),
+		WalletCard          = (1ULL << 58),
+
 		// For iteration
-		LastUsedBit         = (1ULL << 56),
+		LastUsedBit         = (1ULL << 58),
 	};
 	using Flags = base::flags<Flag>;
 	friend inline constexpr auto is_flag_type(Flag) { return true; }
@@ -154,8 +158,10 @@ struct HistoryUpdate {
 		TranslateFrom      = (1U << 13),
 		TranslatedTo       = (1U << 14),
 		UnreadPollVotes    = (1U << 15),
+		StreamedDrafts     = (1U << 16),
+		ComposeStash       = (1U << 17),
 
-		LastUsedBit        = (1U << 15),
+		LastUsedBit        = (1U << 17),
 	};
 	using Flags = base::flags<Flag>;
 	friend inline constexpr auto is_flag_type(Flag) { return true; }
@@ -314,8 +320,6 @@ public:
 	[[nodiscard]] rpl::producer<PeerUpdate> peerFlagsValue(
 		not_null<PeerData*> peer,
 		PeerUpdate::Flags flags) const;
-	[[nodiscard]] rpl::producer<PeerUpdate> realtimePeerUpdates(
-		PeerUpdate::Flag flag) const;
 
 	void historyUpdated(
 		not_null<History*> history,
@@ -328,8 +332,6 @@ public:
 	[[nodiscard]] rpl::producer<HistoryUpdate> historyFlagsValue(
 		not_null<History*> history,
 		HistoryUpdate::Flags flags) const;
-	[[nodiscard]] rpl::producer<HistoryUpdate> realtimeHistoryUpdates(
-		HistoryUpdate::Flag flag) const;
 
 	void topicUpdated(
 		not_null<ForumTopic*> topic,
@@ -342,8 +344,6 @@ public:
 	[[nodiscard]] rpl::producer<TopicUpdate> topicFlagsValue(
 		not_null<ForumTopic*> topic,
 		TopicUpdate::Flags flags) const;
-	[[nodiscard]] rpl::producer<TopicUpdate> realtimeTopicUpdates(
-		TopicUpdate::Flag flag) const;
 	void topicRemoved(not_null<ForumTopic*> topic);
 
 	void sublistUpdated(
@@ -354,11 +354,6 @@ public:
 	[[nodiscard]] rpl::producer<SublistUpdate> sublistUpdates(
 		not_null<SavedSublist*> sublist,
 		SublistUpdate::Flags flags) const;
-	[[nodiscard]] rpl::producer<SublistUpdate> sublistFlagsValue(
-		not_null<SavedSublist*> sublist,
-		SublistUpdate::Flags flags) const;
-	[[nodiscard]] rpl::producer<SublistUpdate> realtimeSublistUpdates(
-		SublistUpdate::Flag flag) const;
 	void sublistRemoved(not_null<SavedSublist*> sublist);
 
 	void messageUpdated(
@@ -386,8 +381,6 @@ public:
 	[[nodiscard]] rpl::producer<EntryUpdate> entryFlagsValue(
 		not_null<Dialogs::Entry*> entry,
 		EntryUpdate::Flags flags) const;
-	[[nodiscard]] rpl::producer<EntryUpdate> realtimeEntryUpdates(
-		EntryUpdate::Flag flag) const;
 	void entryRemoved(not_null<Dialogs::Entry*> entry);
 
 	void storyUpdated(
@@ -398,11 +391,6 @@ public:
 	[[nodiscard]] rpl::producer<StoryUpdate> storyUpdates(
 		not_null<Story*> story,
 		StoryUpdate::Flags flags) const;
-	[[nodiscard]] rpl::producer<StoryUpdate> storyFlagsValue(
-		not_null<Story*> story,
-		StoryUpdate::Flags flags) const;
-	[[nodiscard]] rpl::producer<StoryUpdate> realtimeStoryUpdates(
-		StoryUpdate::Flag flag) const;
 
 	void chatAdminChanged(
 		not_null<PeerData*> peer,

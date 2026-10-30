@@ -35,7 +35,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_cursor_state.h"
 #include "history/history.h"
 #include "styles/style_chat_helpers.h"
-#include "styles/style_menu_icons.h"
 
 #include <QtWidgets/QApplication>
 
@@ -738,8 +737,8 @@ void Inner::switchPm() {
 		});
 	} else {
 		_inlineBot->botInfo->startToken = _switchPmStartToken;
-		_inlineBot->botInfo->inlineReturnTo
-			= _controller->dialogsEntryStateCurrent();
+		_inlineBot->botInfo->setInlineReturnTo(
+			_controller->dialogsEntryStateCurrent());
 		_controller->showPeerHistory(
 			_inlineBot,
 			Window::SectionShow::Way::ClearStack,

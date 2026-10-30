@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/mtproto_config.h"
 #include "history/history.h"
 #include "history/history_item_components.h"
+#include "history/history_item_helpers.h"
 #include "history/view/history_view_chat_section.h"
 #include "lang/lang_keys.h"
 #include "data/notify/data_notify_settings.h"
@@ -95,6 +96,18 @@ base::options::toggle OptionGNotification({
 	},
 });
 
+base::options::toggle OptionMacModernNotifications({
+	.id = kOptionMacModernNotifications,
+	.name = "Modern macOS notifications",
+	.description = "Use UserNotifications framework"
+		" for native notifications (macOS 10.14+)."
+		" System asks for notifications permission on first launch."
+		" Once used, it stays in use even if turned off,"
+		" because macOS stops showing the older notifications.",
+	.scope = base::options::macos,
+	.restartRequired = true,
+});
+
 base::options::toggle HideReplyButtonOption({
 	.id = kOptionHideReplyButton,
 	.name = "Hide reply button",
@@ -165,13 +178,15 @@ base::options::toggle HideReplyButtonOption({
 }
 
 [[nodiscard]] bool AllowNotificationActions(not_null<PeerData*> peer) {
-	return Platform::IsMac() && peer->isNotificationsUser();
+	return (Platform::IsMac() || Platform::IsLinux())
+		&& peer->isNotificationsUser();
 }
 
 } // namespace
 
 const char kOptionCustomNotification[] = "custom-notification";
 const char kOptionGNotification[] = "gnotification";
+const char kOptionMacModernNotifications[] = "mac-modern-notifications";
 const char kOptionHideReplyButton[] = "hide-reply-button";
 
 struct System::Waiter {
@@ -885,7 +900,9 @@ void System::showNext() {
 					? nextNotify->item.get()
 					: nullptr;
 				if (nextItem
-					&& qAbs(int64(nextItem->date()) - int64(groupedItem->date())) < 2) {
+					&& std::abs(int64(nextItem->date())
+						- int64(groupedItem->date()))
+						< 2) {
 					if (isForwarded
 						&& groupedItem->author() == nextItem->author()) {
 						++forwardedCount;
@@ -1172,16 +1189,9 @@ TextWithEntities Manager::ComposeReactionNotification(
 		}
 		return simple(tr::lng_reaction_document);
 	} else if (const auto contact = media->sharedContact()) {
-		const auto name = contact->firstName.isEmpty()
-			? contact->lastName
-			: contact->lastName.isEmpty()
-			? contact->firstName
-			: tr::lng_full_name(
-				tr::now,
-				lt_first_name,
-				contact->firstName,
-				lt_last_name,
-				contact->lastName);
+		const auto name = langFullName(
+			contact->firstName,
+			contact->lastName);
 		return tr::lng_reaction_contact(
 			tr::now,
 			lt_reaction,
@@ -1217,8 +1227,7 @@ TextWithEntities Manager::ComposePollVoteNotification(
 	if (hideContent) {
 		return tr::lng_poll_vote_notext(tr::now, tr::marked);
 	}
-	const auto media = item->media();
-	const auto poll = media ? media->poll() : nullptr;
+	const auto poll = LookupNotificationPoll(item);
 	if (!poll) {
 		return tr::lng_poll_vote_notext(tr::now, tr::marked);
 	}
@@ -1234,6 +1243,29 @@ TextWithEntities Manager::ComposePollVoteNotification(
 		lt_title,
 		poll->question,
 		tr::marked);
+}
+
+Manager::ContextId Manager::ItemContextId(not_null<HistoryItem*> item) {
+	const auto history = item->history();
+	return {
+		.sessionId = history->session().uniqueId(),
+		.peerId = history->peer->id,
+		.topicRootId = item->topicRootId(),
+		.monoforumPeerId = (history->amMonoforumAdmin()
+			? item->sublistPeerId()
+			: PeerId()),
+	};
+}
+
+Manager::ContextId Manager::SublistContextId(
+		not_null<Data::SavedSublist*> sublist) {
+	return {
+		.sessionId = sublist->session().uniqueId(),
+		.peerId = sublist->owningHistory()->peer->id,
+		// Monoforum items are never in a topic, so topicRootId() is General.
+		.topicRootId = Data::ForumTopic::kGeneralId,
+		.monoforumPeerId = sublist->sublistPeer()->id,
+	};
 }
 
 TextWithEntities Manager::addTargetAccountName(
@@ -1386,13 +1418,10 @@ Window::SessionController *Manager::openNotificationMessage(
 	}
 	const auto window = separate
 		? separate->sessionController()
-		: openSeparated
-		? [&] {
-			const auto window = Core::App().ensureSeparateWindowFor(
-				separateId,
-				itemId);
-			return window ? window->sessionController() : nullptr;
-		}()
+		: (openSeparated && CanShowSeparateWindow(separateId))
+		? Core::App().ensureSeparateWindowFor(
+			separateId,
+			itemId)->sessionController()
 		: history->session().tryResolveWindow();
 	if (window) {
 		window->widget()->showFromTray();
@@ -1413,7 +1442,9 @@ Window::SessionController *Manager::openNotificationMessage(
 void Manager::notificationReplied(
 		NotificationId id,
 		const TextWithTags &reply) {
-	if (!id.contextId.sessionId || !id.contextId.peerId) {
+	if (!id.contextId.sessionId
+		|| !id.contextId.peerId
+		|| Core::App().passcodeLocked()) {
 		return;
 	}
 
@@ -1456,7 +1487,9 @@ void Manager::notificationReplied(
 void Manager::notificationActionActivated(
 		NotificationId id,
 		const QString &actionId) {
-	if (actionId == u"markAsRead"_q) {
+	if (Core::App().passcodeLocked()) {
+		return;
+	} else if (actionId == u"markAsRead"_q) {
 		notificationReplied(id, {});
 		return;
 	}
@@ -1639,12 +1672,11 @@ void NativeManager::doShowNotification(NotificationFields &&fields) {
 			}
 		}
 	}
+	const auto contextId = ItemContextId(item);
 	doShowNativeNotification({
 		.peer = item->history()->peer,
-		.topicRootId = item->topicRootId(),
-		.monoforumPeerId = (item->history()->amMonoforumAdmin()
-			? item->sublistPeerId()
-			: PeerId()),
+		.topicRootId = contextId.topicRootId,
+		.monoforumPeerId = contextId.monoforumPeerId,
 		.itemId = item->id,
 		.title = scheduled ? WrapFromScheduled(fullTitle) : fullTitle,
 		.subtitle = subtitle,
@@ -1680,11 +1712,15 @@ QRect NotificationDisplayRect(Window::Controller *controller) {
 		}
 	}
 
-	return screen
-		? screen->availableGeometry()
-		: controller
-		? controller->widget()->desktopRect()
-		: QGuiApplication::primaryScreen()->availableGeometry();
+	if (screen) {
+		return screen->availableGeometry();
+	} else if (controller) {
+		return controller->widget()->desktopRect();
+	}
+	// When the last monitor is removed QGuiApplication has no screens at
+	// all, so primaryScreen() is nullptr.
+	const auto primary = QGuiApplication::primaryScreen();
+	return primary ? primary->availableGeometry() : QRect();
 }
 
 } // namespace Notifications

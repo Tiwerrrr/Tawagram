@@ -9,6 +9,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/markdown/iv_markdown_article_text.h"
 
 #include "lang/lang_keys.h"
+#include "ui/text/text_renderer.h" // Ui::Text::kQuoteCollapsedLines
+
 #include "styles/style_iv.h"
 
 #include <algorithm>
@@ -20,7 +22,7 @@ namespace {
 		const Ui::Text::String &leaf,
 		const QRect &textRect,
 		const style::TextStyle &style) {
-	const auto lines = leaf.countLinesGeometry(textRect.width(), true);
+	const auto lines = leaf.countLinesGeometry(textRect.width());
 	return textRect.y() + (lines.empty()
 		? TextLineBaseline(style)
 		: lines.front().baseline);
@@ -40,7 +42,7 @@ namespace {
 	switch (kind) {
 	case PreparedBlockKind::Photo:
 	case PreparedBlockKind::Video:
-	case PreparedBlockKind::Audio:
+	case PreparedBlockKind::Document:
 	case PreparedBlockKind::Map:
 	case PreparedBlockKind::Channel:
 	case PreparedBlockKind::GroupedMedia:
@@ -58,6 +60,7 @@ namespace {
 	case PreparedBlockKind::DisplayMath:
 	case PreparedBlockKind::Table:
 	case PreparedBlockKind::Placeholder:
+	case PreparedBlockKind::ButtonRow:
 	case PreparedBlockKind::EmbedPost:
 		return false;
 	}
@@ -81,6 +84,86 @@ namespace {
 	return std::max(width - padding.left() - padding.right(), 1);
 }
 
+[[nodiscard]] int PullquoteIconReserveWidth(
+		const style::QuoteStyle &style) {
+	return style.icon.empty()
+		? 0
+		: (style.icon.width() + style.iconPosition.x());
+}
+
+void RefreshLogicalGeometry(LaidOutBlock *block);
+
+[[nodiscard]] int FlowBlockVisibleTextWidth(
+		const LaidOutBlock &block,
+		const EditableMaxLineWidthOverride *override) {
+	if (override
+		&& block.editLeaf
+		&& (*block.editLeaf == override->leaf)) {
+		return std::min(
+			std::max(override->width, 1),
+			std::max(block.textRect.width(), 1));
+	}
+	const auto &leaf = block.placeholderLeaf.isEmpty()
+		? block.leaf
+		: block.placeholderLeaf;
+	return (leaf.isEmpty() || block.textRect.isEmpty())
+		? 0
+		: std::min(leaf.maxWidth(), block.textRect.width());
+}
+
+[[nodiscard]] bool CanTightenPullquoteChild(const LaidOutBlock &block) {
+	return (block.kind == PreparedBlockKind::Paragraph)
+		&& !block.insideHorizontalScroll
+		&& (block.horizontalScrollMax <= 0)
+		&& block.scrollViewportRect.isEmpty()
+		&& block.scrollLogicalContentRect.isEmpty();
+}
+
+[[nodiscard]] int TightPullquoteTextWidth(
+		const std::vector<LaidOutBlock> &children,
+		const EditableMaxLineWidthOverride *override) {
+	auto result = 0;
+	for (const auto &child : children) {
+		if (!CanTightenPullquoteChild(child)) {
+			return 0;
+		}
+		result = std::max(result, FlowBlockVisibleTextWidth(child, override));
+	}
+	return result;
+}
+
+void RecenterPullquoteChild(
+		LaidOutBlock *block,
+		int left,
+		int width) {
+	if (!block) {
+		return;
+	}
+	block->textWidth = width;
+	block->textRect.setX(left);
+	block->textRect.setWidth(width);
+	block->contentRect.setX(left);
+	block->contentRect.setWidth(width);
+	block->outer.setX(left);
+	block->outer.setWidth(width);
+	block->overflowed = false;
+	block->horizontalScrollMax = 0;
+	block->scrollViewportRect = QRect();
+	block->scrollLogicalContentRect = QRect();
+	block->scrollScrollbarTrackRect = QRect();
+	block->scrollScrollbarThumbRect = QRect();
+	RefreshLogicalGeometry(block);
+}
+
+[[nodiscard]] int TextBandWidth(
+		const style::Markdown &st,
+		int width,
+		bool useArticleBands) {
+	return useArticleBands
+		? PaddedWidth(width, st.textPadding)
+		: std::max(width, 1);
+}
+
 [[nodiscard]] QRect BlockBand(
 		PreparedBlockKind kind,
 		const style::Markdown &st,
@@ -100,12 +183,9 @@ namespace {
 		const style::Markdown &st,
 		int width,
 		LayoutContext context) {
-	if (!context.useArticleBands) {
-		return std::max(width, 1);
-	}
-	return UsesMediaBand(kind)
+	return (context.useArticleBands && UsesMediaBand(kind))
 		? PaddedWidth(width, st.mediaPadding)
-		: PaddedWidth(width, st.textPadding);
+		: TextBandWidth(st, width, context.useArticleBands);
 }
 
 [[nodiscard]] bool IsRelatedArticlesHeader(
@@ -135,6 +215,71 @@ void PrepareNestedContext(
 	context->articleLeft = left;
 	context->articleWidth = std::max(width, 1);
 	context->listItemContentShift = 0;
+	context->collapsibleQuoteLines = 0;
+	context->collapsibleQuoteCollapsed = false;
+}
+
+[[nodiscard]] bool TextEmptyForLayout(
+		const PreparedBlock &block,
+		LayoutContext context) {
+	return (block.editLeaf
+		&& context.editableTextEmptyOverride
+		&& (*block.editLeaf == context.editableTextEmptyOverride->leaf))
+		? context.editableTextEmptyOverride->empty
+		: block.text.text.isEmpty();
+}
+
+[[nodiscard]] bool QuoteBodyEmptyForLayout(
+		const PreparedBlock &block,
+		LayoutContext context) {
+	for (const auto &child : block.children) {
+		if (child.quoteAuthor || IsAnchorOnlyBlock(child)) {
+			continue;
+		} else if (IsFlowKind(child.kind)
+			&& TextEmptyForLayout(child, context)
+			&& child.children.empty()) {
+			continue;
+		}
+		return false;
+	}
+	return true;
+}
+
+[[nodiscard]] bool HideEmptyQuoteAuthorBlock(
+		const PreparedBlock &block,
+		LayoutContext context) {
+	return context.hideEmptyQuoteAuthor
+		&& block.quoteAuthor
+		&& TextEmptyForLayout(block, context);
+}
+
+[[nodiscard]] style::align FlowTextAlign(TableAlignment alignment) {
+	switch (alignment) {
+	case TableAlignment::Center:
+		return style::al_center;
+	case TableAlignment::Right:
+		return style::al_right;
+	case TableAlignment::None:
+	case TableAlignment::Left:
+		return style::al_left;
+	}
+	return style::al_left;
+}
+
+[[nodiscard]] LaidOutBlock HiddenQuoteAuthorBlock(
+		const PreparedBlock &prepared) {
+	auto block = LaidOutBlock();
+	ApplyPreparedEditSources(&block, prepared);
+	block.kind = prepared.kind;
+	block.anchorId = prepared.anchorId;
+	block.anchorIds = prepared.anchorIds;
+	block.headingLevel = prepared.headingLevel;
+	block.supplementary = prepared.supplementary;
+	block.pullquote = prepared.pullquote;
+	block.quoteAuthor = prepared.quoteAuthor;
+	block.footer = prepared.footer;
+	block.flowTextAlign = FlowTextAlign(prepared.flowAlignment);
+	return block;
 }
 
 [[nodiscard]] bool FirstLineComesFromChildren(const LaidOutBlock &block) {
@@ -149,11 +294,12 @@ void PrepareNestedContext(
 	case PreparedBlockKind::Heading:
 	case PreparedBlockKind::CodeBlock:
 	case PreparedBlockKind::Rule:
+	case PreparedBlockKind::ButtonRow:
 	case PreparedBlockKind::DisplayMath:
 	case PreparedBlockKind::Table:
 	case PreparedBlockKind::Photo:
 	case PreparedBlockKind::Video:
-	case PreparedBlockKind::Audio:
+	case PreparedBlockKind::Document:
 	case PreparedBlockKind::Map:
 	case PreparedBlockKind::Channel:
 	case PreparedBlockKind::GroupedMedia:
@@ -194,6 +340,8 @@ void RefreshLogicalGeometry(LaidOutBlock *block) {
 		.actionRect = block->actionRect,
 		.markerRect = block->markerRect,
 		.contentRect = block->contentRect,
+		.collapseControlRect = block->collapseControlRect,
+		.buttonRowControlRect = block->buttonRowControlRect,
 		.formulaRect = block->formulaRect,
 		.tableRect = block->tableRect,
 		.mediaRect = block->mediaRect,
@@ -216,6 +364,8 @@ void ClearBlockGeometry(LaidOutBlock *block) {
 	block->actionRect = QRect();
 	block->markerRect = QRect();
 	block->contentRect = QRect();
+	block->collapseControlRect = QRect();
+	block->buttonRowControlRect = QRect();
 	block->formulaRect = QRect();
 	block->tableRect = QRect();
 	block->mediaRect = QRect();
@@ -248,24 +398,8 @@ void ClearBlockGeometry(LaidOutBlock *block) {
 		const style::TextStyle &textStyle,
 		int width) {
 	return std::max(
-		leaf.countHeight(width, true),
+		leaf.countHeight(width),
 		TextLineHeight(textStyle));
-}
-
-[[nodiscard]] bool TextNeedsRetainedLeaf(const QString &text) {
-	for (const auto ch : text) {
-		if (!Ui::Text::IsTrimmed(ch)
-			&& !Ui::Text::IsReplacedBySpace(ch)) {
-			return true;
-		}
-	}
-	return false;
-}
-
-[[nodiscard]] bool MissingRetainedLeaf(
-		const QString &text,
-		const Ui::Text::String &leaf) {
-	return TextNeedsRetainedLeaf(text) && leaf.isEmpty();
 }
 
 struct WidthAnalysisNode {
@@ -278,6 +412,7 @@ struct WidthAnalysisNode {
 	int scrollOwnerOverflowWidth = 1;
 	int scrollViewportMinimumWidth = 1;
 	int outerScrollViewportMinimumWidth = 1;
+	int inlineButtonWidthCap = 0;
 	bool ownerEligible = false;
 	bool chosenScrollOwner = false;
 	bool subtreeNeedsScrollOwner = false;
@@ -359,11 +494,12 @@ void FinalizeOwnerSelection(
 	case PreparedBlockKind::Heading:
 	case PreparedBlockKind::CodeBlock:
 	case PreparedBlockKind::Rule:
+	case PreparedBlockKind::ButtonRow:
 	case PreparedBlockKind::DisplayMath:
 	case PreparedBlockKind::Table:
 	case PreparedBlockKind::Photo:
 	case PreparedBlockKind::Video:
-	case PreparedBlockKind::Audio:
+	case PreparedBlockKind::Document:
 	case PreparedBlockKind::Map:
 	case PreparedBlockKind::Channel:
 	case PreparedBlockKind::GroupedMedia:
@@ -448,6 +584,108 @@ void FinalizeOwnerSelection(
 		: details.bodyPadding;
 }
 
+[[nodiscard]] int BlockTextFrameWidth(
+		const PreparedBlock &block,
+		const style::Markdown &st,
+		int width,
+		LayoutContext context) {
+	const auto bands = context.useArticleBands;
+	switch (block.kind) {
+	case PreparedBlockKind::Details: {
+		const auto band = BlockBandWidth(block.kind, st, width, context);
+		const auto padding = DetailsHeaderPadding(context, st);
+		const auto icon = st.details.icon.empty()
+			? 0
+			: TextLineHeight(st.details.summaryStyle);
+		const auto iconSkip = icon ? st.details.iconSkip : 0;
+		const auto action = context.editMode
+			? DetailsStateReserveWidth(st)
+			: 0;
+		const auto actionSkip = action ? st.details.stateSkip : 0;
+		return std::max(
+			band
+				- padding.left()
+				- padding.right()
+				- icon
+				- iconSkip
+				- actionSkip
+				- action,
+			1);
+	}
+	// Nested media frames are derived from prepared data (paddings and
+	// the doubled intrinsic width), matching the geometry computed before
+	// the runtime media view substitutes its self-chosen size; that size
+	// exists only in the layout walk, so these are exact upper bounds.
+	case PreparedBlockKind::Photo:
+		return bands
+			? TextBandWidth(st, width, true)
+			: LimitedMediaWidth(
+				PaddedWidth(width, st.photo.padding),
+				block.photo.width);
+	case PreparedBlockKind::Video:
+		return bands
+			? TextBandWidth(st, width, true)
+			: LimitedMediaWidth(
+				PaddedWidth(width, st.photo.padding),
+				block.video.media.width);
+	case PreparedBlockKind::Map:
+		return bands
+			? TextBandWidth(st, width, true)
+			: PaddedWidth(width, st.photo.padding);
+	case PreparedBlockKind::GroupedMedia:
+		return bands
+			? TextBandWidth(st, width, true)
+			: PaddedWidth(width, st.groupedMedia.padding);
+	case PreparedBlockKind::Document:
+		return bands
+			? TextBandWidth(st, width, true)
+			: PaddedWidth(width, st.audio.padding);
+	case PreparedBlockKind::Channel:
+		return bands
+			? TextBandWidth(st, width, true)
+			: PaddedWidth(width, st.channel.padding);
+	case PreparedBlockKind::Table:
+		return std::max(
+			TextBandWidth(st, width, bands)
+				- st.table.cellPadding.left()
+				- st.table.cellPadding.right()
+				- 2 * TableBorder(block.tableBordered, st),
+			1);
+	case PreparedBlockKind::CodeBlock:
+		return std::max(
+			TextBandWidth(st, width, bands)
+				- HorizontalMarginsWidth(BlockquotePadding(st.code.pre)),
+			1);
+	case PreparedBlockKind::Paragraph:
+	case PreparedBlockKind::Thinking:
+	case PreparedBlockKind::Heading:
+	case PreparedBlockKind::Rule:
+	case PreparedBlockKind::ButtonRow:
+	case PreparedBlockKind::List:
+	case PreparedBlockKind::ListItem:
+	case PreparedBlockKind::Quote:
+	case PreparedBlockKind::DisplayMath:
+	case PreparedBlockKind::RelatedArticle:
+	case PreparedBlockKind::EmbedPost:
+	case PreparedBlockKind::Placeholder:
+		return TextBandWidth(st, width, bands);
+	}
+	return TextBandWidth(st, width, bands);
+}
+
+[[nodiscard]] int BlockInlineButtonWidthCap(
+		const PreparedBlock &block,
+		const style::Markdown &st,
+		int blockWidth,
+		int width,
+		LayoutContext context) {
+	return std::min({
+		std::max(blockWidth, 1),
+		BlockTextFrameWidth(block, st, width, context),
+		st.inlineButton.maxWidth,
+	});
+}
+
 [[nodiscard]] const WidthAnalysisNode *NextActiveScrollOwner(
 		const WidthAnalysisNode &analysis,
 		const WidthAnalysisNode *activeScrollOwner) {
@@ -492,6 +730,123 @@ void FinalizeOwnerSelection(
 		: 0;
 }
 
+void FinalizeQuoteWidths(
+		WidthAnalysisNode &analysis,
+		const PreparedBlock &prepared,
+		const style::Markdown &st,
+		int overhead,
+		int paddingWidth,
+		int pullquoteReserveWidth) {
+	const auto childRequiredWidth
+		= MaxUnresolvedChildOuterScrollViewportMinimumWidth(
+			analysis.children);
+	const auto childNeedsScrollOwner = (childRequiredWidth > 1);
+	analysis.contentMinimumWidth = MaxChildOuterMinimumWidth(analysis.children);
+	analysis.contentPreferredWidth = MaxChildOuterPreferredWidth(
+		analysis.children);
+	const auto visibleContentWidth = prepared.pullquote
+		? std::min(
+			analysis.contentMinimumWidth,
+			std::max(st.pullquote.maxWidth, 1))
+		: analysis.contentMinimumWidth;
+	const auto visiblePreferredContentWidth = prepared.pullquote
+		? std::min(
+			analysis.contentPreferredWidth,
+			std::max(st.pullquote.maxWidth, 1))
+		: analysis.contentPreferredWidth;
+	analysis.outerMinimumWidth = overhead
+		+ paddingWidth
+		+ pullquoteReserveWidth
+		+ visibleContentWidth;
+	analysis.outerPreferredWidth = overhead
+		+ paddingWidth
+		+ pullquoteReserveWidth
+		+ visiblePreferredContentWidth;
+	if (prepared.pullquote) {
+		const auto requiredContentWidth = std::max(
+			analysis.contentMinimumWidth,
+			childRequiredWidth);
+		analysis.scrollOwnerOverflowWidth = childNeedsScrollOwner
+			? overhead
+				+ paddingWidth
+				+ pullquoteReserveWidth
+				+ requiredContentWidth
+			: analysis.outerMinimumWidth;
+		analysis.scrollViewportMinimumWidth = childNeedsScrollOwner
+			? ReadableScrollViewportMinimumWidth(
+				analysis.contentPreferredWidth,
+				st)
+			: 1;
+		analysis.outerScrollViewportMinimumWidth = overhead
+			+ paddingWidth
+			+ pullquoteReserveWidth
+			+ (childNeedsScrollOwner ? childRequiredWidth : 1);
+		analysis.scrollOwnerMinimumWidth
+			= analysis.scrollOwnerOverflowWidth;
+		if (childNeedsScrollOwner) {
+			analysis.scrollOwnerMinimumWidth = std::max({
+				analysis.scrollOwnerMinimumWidth,
+				analysis.outerScrollViewportMinimumWidth,
+			});
+		}
+	} else {
+		const auto requiredContentWidth = std::max(
+			analysis.contentMinimumWidth,
+			childRequiredWidth);
+		analysis.scrollOwnerOverflowWidth = childNeedsScrollOwner
+			? overhead + paddingWidth + requiredContentWidth
+			: analysis.outerMinimumWidth;
+		analysis.scrollViewportMinimumWidth = childNeedsScrollOwner
+			? ReadableScrollViewportMinimumWidth(
+				analysis.contentPreferredWidth,
+				st)
+			: 1;
+		analysis.outerScrollViewportMinimumWidth = overhead
+			+ paddingWidth
+			+ (childNeedsScrollOwner ? childRequiredWidth : 1);
+		analysis.scrollOwnerMinimumWidth = std::max({
+			analysis.scrollOwnerOverflowWidth,
+			analysis.outerScrollViewportMinimumWidth,
+		});
+	}
+	analysis.ownerEligible = !prepared.children.empty();
+}
+
+void FinalizeCodeAndMathWidths(
+		WidthAnalysisNode &analysis,
+		QMargins padding,
+		const LayoutContext &context,
+		const style::Markdown &st) {
+	analysis.outerMinimumWidth = analysis.contentMinimumWidth;
+	analysis.outerPreferredWidth = analysis.contentPreferredWidth;
+	analysis.scrollOwnerMinimumWidth = analysis.outerMinimumWidth;
+	const auto contentMaxWidth = std::max(
+		analysis.contentPreferredWidth - HorizontalMarginsWidth(padding),
+		1);
+	analysis.scrollViewportMinimumWidth
+		= NestedScrollViewportMinimumWidth(
+			context,
+			contentMaxWidth,
+			st);
+	analysis.outerScrollViewportMinimumWidth
+		= std::max(
+			HorizontalMarginsWidth(padding)
+				+ analysis.scrollViewportMinimumWidth,
+			analysis.outerPreferredWidth);
+	analysis.scrollOwnerOverflowWidth
+		= (analysis.scrollViewportMinimumWidth > 1)
+		? std::max(
+			analysis.outerMinimumWidth,
+			analysis.outerPreferredWidth)
+		: analysis.outerMinimumWidth;
+	analysis.scrollOwnerMinimumWidth = std::max({
+		analysis.scrollOwnerMinimumWidth,
+		analysis.outerPreferredWidth,
+		analysis.outerScrollViewportMinimumWidth,
+	});
+	analysis.ownerEligible = true;
+}
+
 [[nodiscard]] WidthAnalysisNode AnalyzeBlock(
 	const PreparedBlock &prepared,
 	const std::vector<PreparedFormulaSlot> &formulas,
@@ -524,14 +879,22 @@ void FinalizeOwnerSelection(
 					- st.relatedArticle.headerPadding.right(),
 				1);
 		}
-		result.push_back(AnalyzeBlock(
+		blockContext.inlineButtonWidthCap = BlockInlineButtonWidthCap(
+			block,
+			st,
+			blockWidth,
+			width,
+			context);
+		auto node = AnalyzeBlock(
 			block,
 			formulas,
 			inlineFormulaObjects,
 			mediaRuntime,
 			st,
 			blockWidth,
-			blockContext));
+			blockContext);
+		node.inlineButtonWidthCap = blockContext.inlineButtonWidthCap;
+		result.push_back(std::move(node));
 	}
 	return result;
 }
@@ -545,6 +908,9 @@ void FinalizeOwnerSelection(
 		int width,
 		LayoutContext context) {
 	auto analysis = WidthAnalysisNode();
+	if (HideEmptyQuoteAuthorBlock(prepared, context)) {
+		return analysis;
+	}
 	const auto availableWidth = std::max(width, 1);
 	auto visibleScrollViewportWidth = availableWidth;
 	switch (prepared.kind) {
@@ -595,34 +961,7 @@ void FinalizeOwnerSelection(
 			prepared,
 			st,
 			context);
-		analysis.outerMinimumWidth = analysis.contentMinimumWidth;
-		analysis.outerPreferredWidth = analysis.contentPreferredWidth;
-		analysis.scrollOwnerMinimumWidth = analysis.outerMinimumWidth;
-		const auto contentMaxWidth = std::max(
-			analysis.contentPreferredWidth - HorizontalMarginsWidth(padding),
-			1);
-		analysis.scrollViewportMinimumWidth
-			= NestedScrollViewportMinimumWidth(
-				context,
-				contentMaxWidth,
-				st);
-		analysis.outerScrollViewportMinimumWidth
-			= std::max(
-				HorizontalMarginsWidth(padding)
-					+ analysis.scrollViewportMinimumWidth,
-				analysis.outerPreferredWidth);
-		analysis.scrollOwnerOverflowWidth
-			= (analysis.scrollViewportMinimumWidth > 1)
-			? std::max(
-				analysis.outerMinimumWidth,
-				analysis.outerPreferredWidth)
-			: analysis.outerMinimumWidth;
-		analysis.scrollOwnerMinimumWidth = std::max({
-			analysis.scrollOwnerMinimumWidth,
-			analysis.outerPreferredWidth,
-			analysis.outerScrollViewportMinimumWidth,
-		});
-		analysis.ownerEligible = true;
+		FinalizeCodeAndMathWidths(analysis, padding, context, st);
 	} break;
 	case PreparedBlockKind::DisplayMath: {
 		const auto &padding = st.displayMath.padding;
@@ -637,34 +976,7 @@ void FinalizeOwnerSelection(
 			formulas,
 			st,
 			context);
-		analysis.outerMinimumWidth = analysis.contentMinimumWidth;
-		analysis.outerPreferredWidth = analysis.contentPreferredWidth;
-		analysis.scrollOwnerMinimumWidth = analysis.outerMinimumWidth;
-		const auto contentMaxWidth = std::max(
-			analysis.contentPreferredWidth - HorizontalMarginsWidth(padding),
-			1);
-		analysis.scrollViewportMinimumWidth
-			= NestedScrollViewportMinimumWidth(
-				context,
-				contentMaxWidth,
-				st);
-		analysis.outerScrollViewportMinimumWidth
-			= std::max(
-				HorizontalMarginsWidth(padding)
-					+ analysis.scrollViewportMinimumWidth,
-				analysis.outerPreferredWidth);
-		analysis.scrollOwnerOverflowWidth
-			= (analysis.scrollViewportMinimumWidth > 1)
-			? std::max(
-				analysis.outerMinimumWidth,
-				analysis.outerPreferredWidth)
-			: analysis.outerMinimumWidth;
-		analysis.scrollOwnerMinimumWidth = std::max({
-			analysis.scrollOwnerMinimumWidth,
-			analysis.outerPreferredWidth,
-			analysis.outerScrollViewportMinimumWidth,
-		});
-		analysis.ownerEligible = true;
+		FinalizeCodeAndMathWidths(analysis, padding, context, st);
 	} break;
 	case PreparedBlockKind::Table:
 		analysis.contentMinimumWidth = TableBlockContentMinimumWidth(
@@ -700,8 +1012,9 @@ void FinalizeOwnerSelection(
 		const auto depthDelta = std::max(
 			prepared.visualDepth - context.listDepth,
 			0);
-		const auto overhead = depthDelta * st.textPadding.left()
-			- context.listItemContentShift;
+		const auto markerColumn = context.listItemContentShift;
+		const auto step = std::max(st.textPadding.left(), markerColumn);
+		const auto overhead = depthDelta * step - markerColumn;
 		const auto childWidth = std::max(availableWidth - overhead, 1);
 		visibleScrollViewportWidth = childWidth;
 		auto childContext = context;
@@ -743,7 +1056,8 @@ void FinalizeOwnerSelection(
 			analysis.scrollOwnerOverflowWidth,
 			analysis.outerScrollViewportMinimumWidth,
 		});
-		analysis.ownerEligible = !prepared.children.empty();
+		analysis.ownerEligible = !prepared.children.empty()
+			&& !context.listItemDepth;
 	} break;
 	case PreparedBlockKind::ListItem: {
 		const auto markerWidth = std::max(
@@ -792,7 +1106,7 @@ void FinalizeOwnerSelection(
 			analysis.scrollOwnerOverflowWidth,
 			analysis.outerScrollViewportMinimumWidth,
 		});
-		analysis.ownerEligible = !prepared.children.empty();
+		analysis.ownerEligible = false;
 	} break;
 	case PreparedBlockKind::Quote: {
 		const auto depthDelta = std::max(
@@ -803,8 +1117,11 @@ void FinalizeOwnerSelection(
 			? st.pullquote.padding
 			: BlockquotePadding(st.body.blockquote);
 		const auto paddingWidth = HorizontalMarginsWidth(padding);
+		const auto pullquoteReserveWidth = prepared.pullquote
+			? (2 * PullquoteIconReserveWidth(st.body.blockquote))
+			: 0;
 		auto childWidth = std::max(
-			availableWidth - overhead - paddingWidth,
+			availableWidth - overhead - paddingWidth - pullquoteReserveWidth,
 			1);
 		if (prepared.pullquote) {
 			childWidth = std::min(childWidth, std::max(st.pullquote.maxWidth, 1));
@@ -814,6 +1131,9 @@ void FinalizeOwnerSelection(
 		childContext.quoteDepth = prepared.visualDepth + 1;
 		childContext.tightList = false;
 		PrepareNestedContext(&childContext, 0, childWidth);
+		childContext.hideEmptyQuoteAuthor = QuoteBodyEmptyForLayout(
+			prepared,
+			childContext);
 		analysis.children = AnalyzeBlocks(
 			prepared.children,
 			formulas,
@@ -822,73 +1142,13 @@ void FinalizeOwnerSelection(
 			st,
 			childWidth,
 			childContext);
-		const auto childRequiredWidth
-			= MaxUnresolvedChildOuterScrollViewportMinimumWidth(
-				analysis.children);
-		const auto childNeedsScrollOwner = (childRequiredWidth > 1);
-		analysis.contentMinimumWidth = MaxChildOuterMinimumWidth(analysis.children);
-		analysis.contentPreferredWidth = MaxChildOuterPreferredWidth(
-			analysis.children);
-		const auto visibleContentWidth = prepared.pullquote
-			? std::min(
-				analysis.contentMinimumWidth,
-				std::max(st.pullquote.maxWidth, 1))
-			: analysis.contentMinimumWidth;
-		const auto visiblePreferredContentWidth = prepared.pullquote
-			? std::min(
-				analysis.contentPreferredWidth,
-				std::max(st.pullquote.maxWidth, 1))
-			: analysis.contentPreferredWidth;
-		analysis.outerMinimumWidth = overhead
-			+ paddingWidth
-			+ visibleContentWidth;
-		analysis.outerPreferredWidth = overhead
-			+ paddingWidth
-			+ visiblePreferredContentWidth;
-		if (prepared.pullquote) {
-			const auto requiredContentWidth = std::max(
-				analysis.contentMinimumWidth,
-				childRequiredWidth);
-			analysis.scrollOwnerOverflowWidth = childNeedsScrollOwner
-				? overhead + paddingWidth + requiredContentWidth
-				: analysis.outerMinimumWidth;
-			analysis.scrollViewportMinimumWidth = childNeedsScrollOwner
-				? ReadableScrollViewportMinimumWidth(
-					analysis.contentPreferredWidth,
-					st)
-				: 1;
-			analysis.outerScrollViewportMinimumWidth = overhead
-				+ paddingWidth
-				+ (childNeedsScrollOwner ? childRequiredWidth : 1);
-			analysis.scrollOwnerMinimumWidth
-				= analysis.scrollOwnerOverflowWidth;
-			if (childNeedsScrollOwner) {
-				analysis.scrollOwnerMinimumWidth = std::max({
-					analysis.scrollOwnerMinimumWidth,
-					analysis.outerScrollViewportMinimumWidth,
-				});
-			}
-		} else {
-			const auto requiredContentWidth = std::max(
-				analysis.contentMinimumWidth,
-				childRequiredWidth);
-			analysis.scrollOwnerOverflowWidth = childNeedsScrollOwner
-				? overhead + paddingWidth + requiredContentWidth
-				: analysis.outerMinimumWidth;
-			analysis.scrollViewportMinimumWidth = childNeedsScrollOwner
-				? ReadableScrollViewportMinimumWidth(
-					analysis.contentPreferredWidth,
-					st)
-				: 1;
-			analysis.outerScrollViewportMinimumWidth = overhead
-				+ paddingWidth
-				+ (childNeedsScrollOwner ? childRequiredWidth : 1);
-			analysis.scrollOwnerMinimumWidth = std::max({
-				analysis.scrollOwnerOverflowWidth,
-				analysis.outerScrollViewportMinimumWidth,
-			});
-		}
-		analysis.ownerEligible = !prepared.children.empty();
+		FinalizeQuoteWidths(
+			analysis,
+			prepared,
+			st,
+			overhead,
+			paddingWidth,
+			pullquoteReserveWidth);
 	} break;
 	case PreparedBlockKind::Details: {
 		const auto headerPadding = DetailsHeaderPadding(context, st);
@@ -1045,10 +1305,24 @@ void FinalizeOwnerSelection(
 			contentOverhead + analysis.contentPreferredWidth);
 		analysis.ownerEligible = !prepared.children.empty();
 	} break;
+	case PreparedBlockKind::ButtonRow: {
+		const auto minimum = std::max(
+			ButtonRowMinWidth(
+				int(prepared.buttonRow.buttons.size()),
+				st.buttonRow)
+				+ (context.editMode ? ButtonRowControlReserve() : 0),
+			1);
+		analysis.contentMinimumWidth = minimum;
+		analysis.contentPreferredWidth = minimum;
+		analysis.outerMinimumWidth = minimum;
+		analysis.outerPreferredWidth = minimum;
+		analysis.scrollOwnerMinimumWidth = minimum;
+		analysis.ownerEligible = false;
+	} break;
 	case PreparedBlockKind::Rule:
 	case PreparedBlockKind::Photo:
 	case PreparedBlockKind::Video:
-	case PreparedBlockKind::Audio:
+	case PreparedBlockKind::Document:
 	case PreparedBlockKind::Map:
 	case PreparedBlockKind::Channel:
 	case PreparedBlockKind::GroupedMedia:
@@ -1120,6 +1394,16 @@ void FinalizeOwnerSelection(
 					- st.relatedArticle.headerPadding.right(),
 				1);
 		}
+		const auto inlineButtonWidthCap = BlockInlineButtonWidthCap(
+			preparedBlock,
+			st,
+			blockWidth,
+			width,
+			context);
+		if (block.carriesInlineButton
+			&& (block.inlineButtonWidthCap != inlineButtonWidthCap)) {
+			return std::nullopt;
+		}
 		auto analysis = AnalyzeRetainedBlock(
 			preparedBlock,
 			block,
@@ -1146,6 +1430,9 @@ void FinalizeOwnerSelection(
 		return std::nullopt;
 	}
 	auto analysis = WidthAnalysisNode();
+	if (HideEmptyQuoteAuthorBlock(prepared, context)) {
+		return analysis;
+	}
 	const auto availableWidth = std::max(width, 1);
 	auto visibleScrollViewportWidth = availableWidth;
 	switch (prepared.kind) {
@@ -1189,34 +1476,7 @@ void FinalizeOwnerSelection(
 		analysis.contentMinimumWidth = CodeBlockMinimumWidth(st);
 		analysis.contentPreferredWidth = HorizontalMarginsWidth(padding)
 			+ RetainedLeafMaxWidth(DisplayedLeaf(block));
-		analysis.outerMinimumWidth = analysis.contentMinimumWidth;
-		analysis.outerPreferredWidth = analysis.contentPreferredWidth;
-		analysis.scrollOwnerMinimumWidth = analysis.outerMinimumWidth;
-		const auto contentMaxWidth = std::max(
-			analysis.contentPreferredWidth - HorizontalMarginsWidth(padding),
-			1);
-		analysis.scrollViewportMinimumWidth
-			= NestedScrollViewportMinimumWidth(
-				context,
-				contentMaxWidth,
-				st);
-		analysis.outerScrollViewportMinimumWidth
-			= std::max(
-				HorizontalMarginsWidth(padding)
-					+ analysis.scrollViewportMinimumWidth,
-				analysis.outerPreferredWidth);
-		analysis.scrollOwnerOverflowWidth
-			= (analysis.scrollViewportMinimumWidth > 1)
-			? std::max(
-				analysis.outerMinimumWidth,
-				analysis.outerPreferredWidth)
-			: analysis.outerMinimumWidth;
-		analysis.scrollOwnerMinimumWidth = std::max({
-			analysis.scrollOwnerMinimumWidth,
-			analysis.outerPreferredWidth,
-			analysis.outerScrollViewportMinimumWidth,
-		});
-		analysis.ownerEligible = true;
+		FinalizeCodeAndMathWidths(analysis, padding, context, st);
 	} break;
 	case PreparedBlockKind::DisplayMath: {
 		const auto &padding = st.displayMath.padding;
@@ -1240,34 +1500,7 @@ void FinalizeOwnerSelection(
 				+ fallbackWidth;
 			analysis.contentPreferredWidth = analysis.contentMinimumWidth;
 		}
-		analysis.outerMinimumWidth = analysis.contentMinimumWidth;
-		analysis.outerPreferredWidth = analysis.contentPreferredWidth;
-		analysis.scrollOwnerMinimumWidth = analysis.outerMinimumWidth;
-		const auto contentMaxWidth = std::max(
-			analysis.contentPreferredWidth - HorizontalMarginsWidth(padding),
-			1);
-		analysis.scrollViewportMinimumWidth
-			= NestedScrollViewportMinimumWidth(
-				context,
-				contentMaxWidth,
-				st);
-		analysis.outerScrollViewportMinimumWidth
-			= std::max(
-				HorizontalMarginsWidth(padding)
-					+ analysis.scrollViewportMinimumWidth,
-				analysis.outerPreferredWidth);
-		analysis.scrollOwnerOverflowWidth
-			= (analysis.scrollViewportMinimumWidth > 1)
-			? std::max(
-				analysis.outerMinimumWidth,
-				analysis.outerPreferredWidth)
-			: analysis.outerMinimumWidth;
-		analysis.scrollOwnerMinimumWidth = std::max({
-			analysis.scrollOwnerMinimumWidth,
-			analysis.outerPreferredWidth,
-			analysis.outerScrollViewportMinimumWidth,
-		});
-		analysis.ownerEligible = true;
+		FinalizeCodeAndMathWidths(analysis, padding, context, st);
 	} break;
 	case PreparedBlockKind::Table:
 		if (prepared.tableRows.size() != block.tableRows.size()) {
@@ -1315,8 +1548,9 @@ void FinalizeOwnerSelection(
 		const auto depthDelta = std::max(
 			prepared.visualDepth - context.listDepth,
 			0);
-		const auto overhead = depthDelta * st.textPadding.left()
-			- context.listItemContentShift;
+		const auto markerColumn = context.listItemContentShift;
+		const auto step = std::max(st.textPadding.left(), markerColumn);
+		const auto overhead = depthDelta * step - markerColumn;
 		const auto childWidth = std::max(availableWidth - overhead, 1);
 		visibleScrollViewportWidth = childWidth;
 		childContext.listDepth = prepared.visualDepth;
@@ -1360,7 +1594,8 @@ void FinalizeOwnerSelection(
 			analysis.scrollOwnerOverflowWidth,
 			analysis.outerScrollViewportMinimumWidth,
 		});
-		analysis.ownerEligible = !prepared.children.empty();
+		analysis.ownerEligible = !prepared.children.empty()
+			&& !context.listItemDepth;
 	} break;
 	case PreparedBlockKind::ListItem: {
 		if (prepared.children.size() != block.children.size()) {
@@ -1419,7 +1654,7 @@ void FinalizeOwnerSelection(
 			analysis.scrollOwnerOverflowWidth,
 			analysis.outerScrollViewportMinimumWidth,
 		});
-		analysis.ownerEligible = !prepared.children.empty();
+		analysis.ownerEligible = false;
 	} break;
 	case PreparedBlockKind::Quote: {
 		const auto depthDelta = std::max(
@@ -1430,8 +1665,11 @@ void FinalizeOwnerSelection(
 			? st.pullquote.padding
 			: BlockquotePadding(st.body.blockquote);
 		const auto paddingWidth = HorizontalMarginsWidth(padding);
+		const auto pullquoteReserveWidth = prepared.pullquote
+			? (2 * PullquoteIconReserveWidth(st.body.blockquote))
+			: 0;
 		auto childWidth = std::max(
-			availableWidth - overhead - paddingWidth,
+			availableWidth - overhead - paddingWidth - pullquoteReserveWidth,
 			1);
 		if (prepared.pullquote) {
 			childWidth = std::min(childWidth, std::max(st.pullquote.maxWidth, 1));
@@ -1441,6 +1679,9 @@ void FinalizeOwnerSelection(
 		childContext.quoteDepth = prepared.visualDepth + 1;
 		childContext.tightList = false;
 		PrepareNestedContext(&childContext, 0, childWidth);
+		childContext.hideEmptyQuoteAuthor = QuoteBodyEmptyForLayout(
+			prepared,
+			childContext);
 		auto children = AnalyzeRetainedBlocks(
 			prepared.children,
 			block.children,
@@ -1452,73 +1693,13 @@ void FinalizeOwnerSelection(
 			return std::nullopt;
 		}
 		analysis.children = std::move(*children);
-		const auto childRequiredWidth
-			= MaxUnresolvedChildOuterScrollViewportMinimumWidth(
-				analysis.children);
-		const auto childNeedsScrollOwner = (childRequiredWidth > 1);
-		analysis.contentMinimumWidth = MaxChildOuterMinimumWidth(analysis.children);
-		analysis.contentPreferredWidth = MaxChildOuterPreferredWidth(
-			analysis.children);
-		const auto visibleContentWidth = prepared.pullquote
-			? std::min(
-				analysis.contentMinimumWidth,
-				std::max(st.pullquote.maxWidth, 1))
-			: analysis.contentMinimumWidth;
-		const auto visiblePreferredContentWidth = prepared.pullquote
-			? std::min(
-				analysis.contentPreferredWidth,
-				std::max(st.pullquote.maxWidth, 1))
-			: analysis.contentPreferredWidth;
-		analysis.outerMinimumWidth = overhead
-			+ paddingWidth
-			+ visibleContentWidth;
-		analysis.outerPreferredWidth = overhead
-			+ paddingWidth
-			+ visiblePreferredContentWidth;
-		if (prepared.pullquote) {
-			const auto requiredContentWidth = std::max(
-				analysis.contentMinimumWidth,
-				childRequiredWidth);
-			analysis.scrollOwnerOverflowWidth = childNeedsScrollOwner
-				? overhead + paddingWidth + requiredContentWidth
-				: analysis.outerMinimumWidth;
-			analysis.scrollViewportMinimumWidth = childNeedsScrollOwner
-				? ReadableScrollViewportMinimumWidth(
-					analysis.contentPreferredWidth,
-					st)
-				: 1;
-			analysis.outerScrollViewportMinimumWidth = overhead
-				+ paddingWidth
-				+ (childNeedsScrollOwner ? childRequiredWidth : 1);
-			analysis.scrollOwnerMinimumWidth
-				= analysis.scrollOwnerOverflowWidth;
-			if (childNeedsScrollOwner) {
-				analysis.scrollOwnerMinimumWidth = std::max({
-					analysis.scrollOwnerMinimumWidth,
-					analysis.outerScrollViewportMinimumWidth,
-				});
-			}
-		} else {
-			const auto requiredContentWidth = std::max(
-				analysis.contentMinimumWidth,
-				childRequiredWidth);
-			analysis.scrollOwnerOverflowWidth = childNeedsScrollOwner
-				? overhead + paddingWidth + requiredContentWidth
-				: analysis.outerMinimumWidth;
-			analysis.scrollViewportMinimumWidth = childNeedsScrollOwner
-				? ReadableScrollViewportMinimumWidth(
-					analysis.contentPreferredWidth,
-					st)
-				: 1;
-			analysis.outerScrollViewportMinimumWidth = overhead
-				+ paddingWidth
-				+ (childNeedsScrollOwner ? childRequiredWidth : 1);
-			analysis.scrollOwnerMinimumWidth = std::max({
-				analysis.scrollOwnerOverflowWidth,
-				analysis.outerScrollViewportMinimumWidth,
-			});
-		}
-		analysis.ownerEligible = !prepared.children.empty();
+		FinalizeQuoteWidths(
+			analysis,
+			prepared,
+			st,
+			overhead,
+			paddingWidth,
+			pullquoteReserveWidth);
 	} break;
 	case PreparedBlockKind::Details: {
 		const auto headerPadding = DetailsHeaderPadding(context, st);
@@ -1682,10 +1863,24 @@ void FinalizeOwnerSelection(
 			contentOverhead + analysis.contentPreferredWidth);
 		analysis.ownerEligible = !prepared.children.empty();
 	} break;
+	case PreparedBlockKind::ButtonRow: {
+		const auto minimum = std::max(
+			ButtonRowMinWidth(
+				int(prepared.buttonRow.buttons.size()),
+				st.buttonRow)
+				+ (context.editMode ? ButtonRowControlReserve() : 0),
+			1);
+		analysis.contentMinimumWidth = minimum;
+		analysis.contentPreferredWidth = minimum;
+		analysis.outerMinimumWidth = minimum;
+		analysis.outerPreferredWidth = minimum;
+		analysis.scrollOwnerMinimumWidth = minimum;
+		analysis.ownerEligible = false;
+	} break;
 	case PreparedBlockKind::Rule:
 	case PreparedBlockKind::Photo:
 	case PreparedBlockKind::Video:
-	case PreparedBlockKind::Audio:
+	case PreparedBlockKind::Document:
 	case PreparedBlockKind::Map:
 	case PreparedBlockKind::Channel:
 	case PreparedBlockKind::GroupedMedia:
@@ -1905,6 +2100,8 @@ using LayoutListChildCallback = std::function<std::optional<int>(
 			= context.taskMarkerRippleRuntimeFactory(*prepared.editListItem);
 	}
 	if (ordered) {
+		auto markerContext = context;
+		markerContext.rtl = false;
 		BuildOrReusePlainTextLeaf(
 			&block.marker,
 			CachedTextLeafSlot::Marker,
@@ -1912,7 +2109,7 @@ using LayoutListChildCallback = std::function<std::optional<int>(
 			st.body,
 			markerText,
 			PlainTextMinResizeWidth(st.body),
-			context);
+			markerContext);
 	}
 	const auto bottom = LayoutListItemBlockGeometry(
 		prepared,
@@ -1968,6 +2165,8 @@ using LayoutListChildCallback = std::function<std::optional<int>(
 			LayoutContext childContext,
 			bool tight) -> std::optional<int> {
 		const auto &child = prepared.children[index];
+		childContext.inlineButtonWidthCap
+			= analysis.children[index].inlineButtonWidthCap;
 		auto laidOut = (child.kind == PreparedBlockKind::ListItem)
 			? LayoutListItemBlock(
 				child,
@@ -2001,6 +2200,8 @@ using LayoutListChildCallback = std::function<std::optional<int>(
 				childLogicalWidth,
 				childContext);
 		const auto bottom = BlockBottom(laidOut);
+		laidOut.inlineButtonWidthCap = childContext.inlineButtonWidthCap;
+		laidOut.carriesInlineButton = PreparedBlockHasInlineButton(child);
 		block.children.push_back(std::move(laidOut));
 		return bottom;
 	};
@@ -2114,6 +2315,8 @@ using LayoutListChildCallback = std::function<std::optional<int>(
 			context);
 	}
 	if (context.editMode) {
+		auto actionContext = context;
+		actionContext.rtl = false;
 		BuildOrReusePlainTextLeaf(
 			&block.actionLeaf,
 			CachedTextLeafSlot::Action,
@@ -2121,7 +2324,7 @@ using LayoutListChildCallback = std::function<std::optional<int>(
 			details.summaryStyle,
 			DetailsStateText(prepared.detailsOpen),
 			PlainTextMinResizeWidth(details.summaryStyle),
-			context);
+			actionContext);
 	}
 	const auto bottom = LayoutDetailsBlockGeometry(
 		prepared,
@@ -2279,6 +2482,17 @@ using LayoutListChildCallback = std::function<std::optional<int>(
 			context);
 	case PreparedBlockKind::Rule:
 		return LayoutRuleBlock(prepared, st, left, top, width);
+	case PreparedBlockKind::ButtonRow:
+		return LayoutButtonRowBlock(
+			prepared,
+			formulas,
+			inlineFormulaObjects,
+			mediaRuntime,
+			st,
+			left,
+			top,
+			width,
+			context);
 	case PreparedBlockKind::List:
 		return LayoutListBlock(
 			prepared,
@@ -2374,8 +2588,8 @@ using LayoutListChildCallback = std::function<std::optional<int>(
 			top,
 			width,
 			context);
-	case PreparedBlockKind::Audio:
-		return LayoutAudioBlock(
+	case PreparedBlockKind::Document:
+		return LayoutDocumentBlock(
 			prepared,
 			formulas,
 			inlineFormulaObjects,
@@ -2498,6 +2712,15 @@ int LayoutBlocks(
 		const auto next = NextVisibleBlock(prepared, i);
 		auto blockContext = context;
 		blockContext.preparedPath.push_back(i);
+		blockContext.inlineButtonWidthCap = analysis[i].inlineButtonWidthCap;
+		const auto takesSkipBlock = !anchorOnly
+			&& !next
+			&& TakesMessageSkipBlock(block);
+		blockContext.skipBlock = takesSkipBlock ? context.skipBlock : QSize();
+		if (HideEmptyQuoteAuthorBlock(block, blockContext)) {
+			blocks->push_back(HiddenQuoteAuthorBlock(block));
+			continue;
+		}
 		if (previous && !anchorOnly) {
 			y += BlockSkip(*previous, block, context, st);
 		}
@@ -2561,6 +2784,8 @@ int LayoutBlocks(
 			RefreshLogicalGeometry(&laidOut);
 		}
 		y = BlockBottom(laidOut);
+		laidOut.inlineButtonWidthCap = blockContext.inlineButtonWidthCap;
+		laidOut.carriesInlineButton = PreparedBlockHasInlineButton(block);
 		blocks->push_back(std::move(laidOut));
 		if (!anchorOnly) {
 			previous = &block;
@@ -2656,7 +2881,7 @@ int LayoutBlocks(
 	} else if (ordered) {
 		markerTextWidth = std::max(block->marker.maxWidth(), 1);
 		markerTextHeight = std::max(
-			block->marker.countHeight(markerTextWidth, true),
+			block->marker.countHeight(markerTextWidth),
 			bodyLineHeight);
 	}
 	ClearBlockGeometry(block);
@@ -2669,7 +2894,9 @@ int LayoutBlocks(
 		currentScrollOwner,
 		logicalWidth);
 	block->markerWidth = std::max(list.markerWidth, markerTextWidth);
-	const auto bodyLeft = left + block->markerWidth + list.markerSkip;
+	const auto bodyLeft = context.rtl
+		? left
+		: (left + block->markerWidth + list.markerSkip);
 	const auto bodyWidth = std::max(
 		width - block->markerWidth - list.markerSkip,
 		1);
@@ -2718,13 +2945,18 @@ int LayoutBlocks(
 		(bodyLineHeight - markerTextHeight) / 2,
 		0);
 	if (task) {
+		const auto markerLeft = context.rtl
+			? (left + width - list.taskCheck.diameter)
+			: left;
 		block->markerRect = QRect(
-			left,
+			markerLeft,
 			markerTop,
 			list.taskCheck.diameter,
 			list.taskCheck.diameter);
 	} else if (ordered) {
-		const auto markerLeft = left + block->markerWidth - markerTextWidth;
+		const auto markerLeft = context.rtl
+			? (left + width - block->markerWidth)
+			: (left + block->markerWidth - markerTextWidth);
 		const auto markerLeafBaseline = LeafFirstLineBaseline(
 			block->marker,
 			QRect(0, 0, markerTextWidth, markerTextHeight),
@@ -2735,7 +2967,10 @@ int LayoutBlocks(
 			markerTextWidth,
 			markerTextHeight);
 	} else {
-		block->markerCenter = BulletMarkerCenter(left, markerBaseline, st);
+		const auto center = BulletMarkerCenter(left, markerBaseline, st);
+		block->markerCenter = context.rtl
+			? QPoint(left + width - (center.x() - left), center.y())
+			: center;
 	}
 	block->contentRect = QRect(bodyLeft, top, bodyWidth, rowHeight);
 	block->horizontalScrollMax = scrollOwner
@@ -2786,9 +3021,10 @@ int LayoutBlocks(
 	}
 	ClearBlockGeometry(block);
 	const auto depthDelta = std::max(prepared.visualDepth - context.listDepth, 0);
-	const auto indent = depthDelta * st.textPadding.left()
-		- context.listItemContentShift;
-	const auto listLeft = left + indent;
+	const auto markerColumn = context.listItemContentShift;
+	const auto step = std::max(st.textPadding.left(), markerColumn);
+	const auto indent = depthDelta * step - markerColumn;
+	const auto listLeft = context.rtl ? left : (left + indent);
 	const auto listWidth = std::max(width - indent, 1);
 	const auto currentScrollOwner = NextActiveScrollOwner(
 		analysis,
@@ -2904,20 +3140,32 @@ int LayoutBlocks(
 	const auto padding = prepared.pullquote
 		? st.pullquote.padding
 		: BlockquotePadding(st.body.blockquote);
+	const auto pullquoteReserveWidth = prepared.pullquote
+		? PullquoteIconReserveWidth(st.body.blockquote)
+		: 0;
 	const auto availableWidth = std::max(
-		quoteWidth - padding.left() - padding.right(),
+		quoteWidth
+			- padding.left()
+			- padding.right()
+			- 2 * pullquoteReserveWidth,
 		1);
 	const auto contentWidth = prepared.pullquote
 		? std::min(availableWidth, std::max(st.pullquote.maxWidth, 1))
 		: availableWidth;
 	const auto logicalAvailableWidth = std::max(
-		quoteLogicalWidth - padding.left() - padding.right(),
+		quoteLogicalWidth
+			- padding.left()
+			- padding.right()
+			- 2 * pullquoteReserveWidth,
 		1);
 	const auto contentLogicalWidth = prepared.pullquote
 		? std::min(logicalAvailableWidth, std::max(st.pullquote.maxWidth, 1))
 		: logicalAvailableWidth;
 	const auto contentLeft = prepared.pullquote
-		? (quoteLeft + padding.left() + ((availableWidth - contentWidth) / 2))
+		? (quoteLeft
+			+ padding.left()
+			+ pullquoteReserveWidth
+			+ ((availableWidth - contentWidth) / 2))
 		: (quoteLeft + padding.left());
 	const auto contentTop = top + padding.top();
 	const auto childActiveScrollOwner = NextActiveScrollOwner(
@@ -2931,6 +3179,13 @@ int LayoutBlocks(
 	childContext.quoteDepth = prepared.visualDepth + 1;
 	childContext.tightList = false;
 	PrepareNestedContext(&childContext, contentLeft, contentLayoutWidth);
+	childContext.hideEmptyQuoteAuthor = QuoteBodyEmptyForLayout(
+		prepared,
+		childContext);
+	if (!prepared.collapseToggleId.isEmpty()) {
+		childContext.collapsibleQuoteLines = Ui::Text::kQuoteCollapsedLines;
+		childContext.collapsibleQuoteCollapsed = prepared.collapsed;
+	}
 	const auto childBottom = layoutNestedBlocks(
 		prepared.children,
 		&block->children,
@@ -2944,11 +3199,20 @@ int LayoutBlocks(
 	if (!childBottom) {
 		return std::nullopt;
 	}
+	block->collapseToggleId = prepared.collapseToggleId;
+	block->collapsed = prepared.collapsed;
+	block->collapsedAtomic = context.editMode
+		&& prepared.collapsed
+		&& !prepared.collapseToggleId.isEmpty();
+	block->collapsedLinesExceeded = !block->children.empty()
+		&& !block->children.front().quoteAuthor
+		&& block->children.front().collapsedLinesExceeded;
 	const auto contentHeight = std::max(
 		*childBottom - contentTop,
 		prepared.children.empty()
 			? TextLineHeight(st.body)
 			: 0);
+	block->textWidth = contentWidth;
 	block->horizontalScrollMax = scrollOwner
 		? std::max(contentLogicalWidth - contentWidth, 0)
 		: 0;
@@ -2978,11 +3242,47 @@ int LayoutBlocks(
 			scrollOwner,
 			block->horizontalScrollMax,
 			st);
-	block->outer = QRect(quoteLeft, top, quoteWidth, quoteHeight);
+	auto outerLeft = quoteLeft;
+	auto outerWidth = quoteWidth;
+	auto finalContentLeft = contentLeft;
+	auto finalContentWidth = contentWidth;
+	if (prepared.pullquote) {
+		outerWidth = padding.left()
+			+ 2 * pullquoteReserveWidth
+			+ contentWidth
+			+ padding.right();
+		outerLeft = quoteLeft + ((quoteWidth - outerWidth) / 2);
+		const auto tightTextWidth = TightPullquoteTextWidth(
+			block->children,
+			context.editableMaxLineWidthOverride.get());
+		if ((tightTextWidth > 0) && (tightTextWidth < contentWidth)) {
+			finalContentWidth = tightTextWidth;
+			finalContentLeft = quoteLeft
+				+ padding.left()
+				+ pullquoteReserveWidth
+				+ ((availableWidth - finalContentWidth) / 2);
+			for (auto &child : block->children) {
+				RecenterPullquoteChild(
+					&child,
+					finalContentLeft,
+					finalContentWidth);
+			}
+			outerWidth = padding.left()
+				+ 2 * pullquoteReserveWidth
+				+ finalContentWidth
+				+ padding.right();
+			outerLeft = quoteLeft + ((quoteWidth - outerWidth) / 2);
+		}
+	}
+	block->centeredShift = std::max(outerLeft - quoteLeft, 0);
+	block->outer = QRect(outerLeft, top, outerWidth, quoteHeight);
+	block->collapseControlRect = QuoteHasCollapseControl(*block)
+		? QuoteCollapseControlRect(block->outer, st.body.blockquote)
+		: QRect();
 	block->contentRect = QRect(
-		contentLeft,
+		finalContentLeft,
 		contentTop,
-		contentWidth,
+		finalContentWidth,
 		contentHeight);
 	block->firstLineBaseline = ResolveFirstDisplayedLineBaseline(*block, st);
 	RefreshLogicalGeometry(block);
@@ -3017,6 +3317,7 @@ int LayoutBlocks(
 		return std::nullopt;
 	}
 	ClearBlockGeometry(block);
+	block->rtl = context.rtl;
 	const auto &details = st.details;
 	const auto headerPadding = DetailsHeaderPadding(context, st);
 	const auto bodyPadding = DetailsBodyPadding(context, st);
@@ -3033,10 +3334,12 @@ int LayoutBlocks(
 	const auto iconSkip = iconWidth ? details.iconSkip : 0;
 	const auto actionSkip = actionWidth ? details.stateSkip : 0;
 	const auto actionZoneWidth = actionSkip + actionWidth;
-	const auto textLeft = left
-		+ headerPadding.left()
-		+ iconWidth
-		+ iconSkip;
+	const auto textLeft = context.rtl
+		? (left + headerPadding.right() + actionZoneWidth)
+		: (left
+			+ headerPadding.left()
+			+ iconWidth
+			+ iconSkip);
 	block->textWidth = std::max(
 		headerWidth
 			- headerPadding.left()
@@ -3068,8 +3371,11 @@ int LayoutBlocks(
 		+ headerPadding.bottom();
 	block->headerRect = QRect(left, top, headerWidth, headerHeight);
 	if (iconWidth > 0 && iconHeight > 0) {
+		const auto iconLeft = context.rtl
+			? (left + headerWidth - headerPadding.left() - iconWidth)
+			: (left + headerPadding.left());
 		block->iconRect = QRect(
-			left + headerPadding.left(),
+			iconLeft,
 			top + (headerHeight - iconHeight) / 2,
 			iconWidth,
 			iconHeight);
@@ -3081,8 +3387,11 @@ int LayoutBlocks(
 		block->textWidth,
 		summaryHeight);
 	if (actionZoneWidth > 0 && actionHeight > 0) {
+		const auto actionLeft = context.rtl
+			? (left + headerPadding.right())
+			: (left + headerWidth - headerPadding.right() - actionZoneWidth);
 		block->actionRect = QRect(
-			left + headerWidth - headerPadding.right() - actionZoneWidth,
+			actionLeft,
 			top + headerPadding.top()
 				+ std::max((headerContentHeight - actionHeight) / 2, 0),
 			actionZoneWidth,
@@ -3097,7 +3406,9 @@ int LayoutBlocks(
 		activeScrollOwner);
 	auto bottom = top + headerHeight;
 	if (!prepared.collapsed) {
-		const auto childLeft = left + bodyPadding.left();
+		const auto childLeft = context.rtl
+			? (left + bodyPadding.right())
+			: (left + bodyPadding.left());
 		const auto childTop = bottom + bodyPadding.top();
 		const auto childWidth = std::max(
 			headerWidth
@@ -3185,8 +3496,7 @@ int LayoutBlocks(
 		const LayoutNestedBlocksCallback &layoutNestedBlocks) {
 	if (!block
 		|| MissingRetainedLeaf(prepared.embedPost.author, block->labelLeaf)
-		|| MissingRetainedLeaf(prepared.embedPost.dateText, block->subtitleLeaf)
-		|| (prepared.embedPost.authorPhotoId && !block->photoRuntime)) {
+		|| MissingRetainedLeaf(prepared.embedPost.dateText, block->subtitleLeaf)) {
 		return std::nullopt;
 	}
 	ClearBlockGeometry(block);
@@ -3396,11 +3706,12 @@ int LayoutBlocks(
 	case PreparedBlockKind::Heading:
 	case PreparedBlockKind::CodeBlock:
 	case PreparedBlockKind::Rule:
+	case PreparedBlockKind::ButtonRow:
 	case PreparedBlockKind::DisplayMath:
 	case PreparedBlockKind::Table:
 	case PreparedBlockKind::Photo:
 	case PreparedBlockKind::Video:
-	case PreparedBlockKind::Audio:
+	case PreparedBlockKind::Document:
 	case PreparedBlockKind::Map:
 	case PreparedBlockKind::Channel:
 	case PreparedBlockKind::GroupedMedia:
@@ -3525,7 +3836,11 @@ int LayoutBlocks(
 [[nodiscard]] const style::TextStyle &LaidOutFlowTextStyle(
 		const LaidOutBlock &block,
 		const style::Markdown &st) {
-	if (block.kind != PreparedBlockKind::Heading) {
+	if (block.quoteAuthor) {
+		return st.quoteAuthorStyle;
+	} else if (block.footer) {
+		return st.footer;
+	} else if (block.kind != PreparedBlockKind::Heading) {
 		return st.body;
 	}
 	switch (std::clamp(block.headingLevel, 1, 6)) {
@@ -3541,7 +3856,8 @@ int LayoutBlocks(
 
 [[nodiscard]] int BlockContentMaxRight(
 		const LaidOutBlock &block,
-		const style::Markdown &st) {
+		const style::Markdown &st,
+		bool rtl) {
 	const auto outerRight = block.outer.x() + block.outer.width();
 	const auto textRight = [&] {
 		const auto &leaf = block.placeholderLeaf.isEmpty()
@@ -3555,7 +3871,7 @@ int LayoutBlocks(
 	const auto childrenRight = [&] {
 		auto result = 0;
 		for (const auto &child : block.children) {
-			result = std::max(result, BlockContentMaxRight(child, st));
+			result = std::max(result, BlockContentMaxRight(child, st, rtl));
 		}
 		return result;
 	};
@@ -3570,6 +3886,10 @@ int LayoutBlocks(
 	case PreparedBlockKind::Heading: {
 		if (block.flowTextAlign != style::al_left) {
 			return outerRight;
+		} else if (block.skipBlockLength > 0) {
+			const auto band = block.textRect.width();
+			const auto width = std::min(block.leaf.countWidth(band), band);
+			return std::min(block.textRect.x() + width, outerRight);
 		}
 		const auto &leaf = block.placeholderLeaf.isEmpty()
 			? block.leaf
@@ -3592,6 +3912,8 @@ int LayoutBlocks(
 			outerRight);
 	case PreparedBlockKind::Rule:
 		return block.outer.x();
+	case PreparedBlockKind::ButtonRow:
+		return outerRight;
 	case PreparedBlockKind::DisplayMath: {
 		if (!block.textRect.isEmpty()) {
 			return outerRight;
@@ -3616,21 +3938,26 @@ int LayoutBlocks(
 	case PreparedBlockKind::List:
 		return std::min(childrenRight(), outerRight);
 	case PreparedBlockKind::ListItem:
-		return std::min(
-			std::max(
-				block.outer.x() + block.markerWidth,
-				childrenRight()),
-			outerRight);
-	case PreparedBlockKind::Quote:
-		return block.pullquote
+		return rtl
 			? outerRight
+			: std::min(
+				std::max(
+					block.outer.x() + block.markerWidth,
+					childrenRight()),
+				outerRight);
+	case PreparedBlockKind::Quote:
+		// WHY: a pullquote is centred in its band, so its right edge moves
+		// with the layout width and would shrink the bubble on every pass;
+		// its frame width measured from the band's left does not move.
+		return block.pullquote
+			? (outerRight - block.centeredShift)
 			: std::min(
 				childrenRight()
 					+ BlockquotePadding(st.body.blockquote).right(),
 				outerRight);
 	case PreparedBlockKind::Photo:
 	case PreparedBlockKind::Video:
-	case PreparedBlockKind::Audio:
+	case PreparedBlockKind::Document:
 	case PreparedBlockKind::Map:
 	case PreparedBlockKind::Channel:
 	case PreparedBlockKind::GroupedMedia:
@@ -3669,6 +3996,14 @@ int LayoutBlocks(
 		const auto next = NextVisibleBlock(prepared, i);
 		auto blockContext = context;
 		blockContext.preparedPath.push_back(i);
+		const auto takesSkipBlock = !anchorOnly
+			&& !next
+			&& TakesMessageSkipBlock(preparedBlock);
+		blockContext.skipBlock = takesSkipBlock ? context.skipBlock : QSize();
+		if (HideEmptyQuoteAuthorBlock(preparedBlock, blockContext)) {
+			live = HiddenQuoteAuthorBlock(preparedBlock);
+			continue;
+		}
 		if (previous && !anchorOnly) {
 			y += BlockSkip(*previous, preparedBlock, context, st);
 		}
@@ -3817,7 +4152,8 @@ std::optional<int> RecountLaidOutBlocks(
 
 int ArticleContentMaxRight(
 		const std::vector<LaidOutBlock> &blocks,
-		const style::Markdown &st) {
+		const style::Markdown &st,
+		bool rtl) {
 	auto result = 0;
 	for (const auto &block : blocks) {
 		const auto bandPadding = UsesMediaBand(block.kind)
@@ -3825,7 +4161,19 @@ int ArticleContentMaxRight(
 			: st.textPadding;
 		result = std::max(
 			result,
-			BlockContentMaxRight(block, st) - bandPadding.left());
+			BlockContentMaxRight(block, st, rtl) - bandPadding.left());
+	}
+	return result;
+}
+
+int ArticleHorizontalOverflow(const std::vector<LaidOutBlock> &blocks) {
+	auto result = 0;
+	for (const auto &block : blocks) {
+		result = std::max({
+			result,
+			block.horizontalScrollMax,
+			ArticleHorizontalOverflow(block.children),
+		});
 	}
 	return result;
 }

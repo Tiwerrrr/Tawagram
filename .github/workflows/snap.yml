@@ -2,6 +2,12 @@ name: Snap.
 
 on:
   push:
+    # Pushes to the canary or private-ci branches run their own workflows.
+    branches-ignore:
+      - public-canary
+      - private-canary
+      - 'private-ci/**'
+      - 'private-ci-*'
     paths-ignore:
       - 'docs/**'
       - '**.md'
@@ -85,3 +91,4 @@ jobs:
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: artifact
+          retention-days: 1

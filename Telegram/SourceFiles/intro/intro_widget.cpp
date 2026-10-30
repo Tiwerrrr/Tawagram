@@ -188,11 +188,6 @@ not_null<Media::Player::FloatDelegate*> Widget::floatPlayerDelegate() {
 	return static_cast<Media::Player::FloatDelegate*>(this);
 }
 
-auto Widget::floatPlayerSectionDelegate()
--> not_null<Media::Player::FloatSectionDelegate*> {
-	return static_cast<Media::Player::FloatSectionDelegate*>(this);
-}
-
 not_null<Ui::RpWidget*> Widget::floatPlayerWidget() {
 	return this;
 }
@@ -476,6 +471,9 @@ void Widget::appendStep(Step *step) {
 		} else {
 			moveToStep(step, action, animate);
 		}
+	});
+	step->setStepBelowCallback([=]() -> Step* {
+		return (_stepHistory.size() > 1) ? getStep(1) : nullptr;
 	});
 	step->setShowResetCallback([=] {
 		showResetButton();

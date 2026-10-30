@@ -35,8 +35,11 @@ class Changes;
 class GiftAuctions;
 class RecentInlineBots;
 class RecentPeers;
+class RecentMoneyRecipients;
 class RecentSharedMediaGifts;
 class ScheduledMessages;
+class WelcomeMessages;
+class EphemeralMessages;
 class SponsoredMessages;
 class TopPeers;
 class Factchecks;
@@ -81,6 +84,10 @@ class AttachWebView;
 namespace Ui {
 struct ColorIndicesCompressed;
 } // namespace Ui
+
+namespace Wallet {
+class Session;
+} // namespace Wallet
 
 namespace Main {
 
@@ -145,6 +152,9 @@ public:
 	[[nodiscard]] Data::RecentPeers &recentPeers() const {
 		return *_recentPeers;
 	}
+	[[nodiscard]] Data::RecentMoneyRecipients &recentMoneyRecipients() const {
+		return *_recentMoneyRecipients;
+	}
 	[[nodiscard]] Data::RecentSharedMediaGifts &recentSharedGifts() const {
 		return *_recentSharedGifts;
 	}
@@ -156,6 +166,12 @@ public:
 	}
 	[[nodiscard]] Data::ScheduledMessages &scheduledMessages() const {
 		return *_scheduledMessages;
+	}
+	[[nodiscard]] Data::WelcomeMessages &welcomeMessages() const {
+		return *_welcomeMessages;
+	}
+	[[nodiscard]] Data::EphemeralMessages &ephemeralMessages() const {
+		return *_ephemeralMessages;
 	}
 	[[nodiscard]] Data::TopPeers &topPeers() const {
 		return *_topPeers;
@@ -177,6 +193,9 @@ public:
 	}
 	[[nodiscard]] Data::Credits &credits() const {
 		return *_credits;
+	}
+	[[nodiscard]] Wallet::Session &wallet() const {
+		return *_wallet;
 	}
 	[[nodiscard]] Api::Updates &updates() const {
 		return *_updates;
@@ -238,6 +257,7 @@ public:
 	void addWindow(not_null<Window::SessionController*> controller);
 	[[nodiscard]] auto windows() const
 		-> const base::flat_set<not_null<Window::SessionController*>> &;
+	[[nodiscard]] rpl::producer<> windowAdded() const;
 	[[nodiscard]] Window::SessionController *tryResolveWindow(
 		PeerData *forPeer = nullptr) const;
 
@@ -267,6 +287,7 @@ public:
 		TextWithEntities query) const;
 
 	void setTmpPassword(const QByteArray &password, TimeId validUntil);
+	void dropTmpPassword(const QByteArray &password);
 	[[nodiscard]] QByteArray validTmpPassword() const;
 
 	// Can be called only right before ~Session.
@@ -320,9 +341,12 @@ private:
 	const std::unique_ptr<SendAsPeers> _sendAsPeers;
 	const std::unique_ptr<InlineBots::AttachWebView> _attachWebView;
 	const std::unique_ptr<Data::RecentPeers> _recentPeers;
+	const std::unique_ptr<Data::RecentMoneyRecipients> _recentMoneyRecipients;
 	const std::unique_ptr<Data::RecentSharedMediaGifts> _recentSharedGifts;
 	const std::unique_ptr<Data::GiftAuctions> _giftAuctions;
 	const std::unique_ptr<Data::ScheduledMessages> _scheduledMessages;
+	const std::unique_ptr<Data::WelcomeMessages> _welcomeMessages;
+	const std::unique_ptr<Data::EphemeralMessages> _ephemeralMessages;
 	const std::unique_ptr<Data::SponsoredMessages> _sponsoredMessages;
 	const std::unique_ptr<Data::TopPeers> _topPeers;
 	const std::unique_ptr<Data::TopPeers> _topBotApps;
@@ -331,6 +355,7 @@ private:
 	const std::unique_ptr<Data::Factchecks> _factchecks;
 	const std::unique_ptr<Data::LocationPickers> _locationPickers;
 	const std::unique_ptr<Data::Credits> _credits;
+	const std::unique_ptr<Wallet::Session> _wallet;
 	const std::unique_ptr<Data::PromoSuggestions> _promoSuggestions;
 	const std::unique_ptr<Data::Passkeys> _passkeys;
 	const std::unique_ptr<Settings::FaqSuggestions> _faqSuggestions;
@@ -350,6 +375,7 @@ private:
 	std::unique_ptr<Window::TermsLock> _termsLock;
 
 	base::flat_set<not_null<Window::SessionController*>> _windows;
+	rpl::event_stream<> _windowAdded;
 	base::Timer _saveSettingsTimer;
 
 	rpl::variable<FreezeInfo> _frozen;

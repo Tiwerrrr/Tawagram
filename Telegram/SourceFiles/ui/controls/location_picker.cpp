@@ -44,12 +44,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "webview/webview_interface.h"
 #include "core/cached_webview_availability.h"
 #include "window/themes/window_theme.h"
-#include "styles/style_chat_helpers.h"
 #include "styles/style_dialogs.h"
+#include "styles/style_location_picker.h"
 #include "styles/style_payments.h" // paymentsCriticalError
-#include "styles/style_window.h"
 #include "styles/style_settings.h" // settingsCloudPasswordIconSize
-#include "styles/style_layers.h" // boxDividerHeight
 
 #include <QtCore/QFile>
 #include <QtCore/QJsonDocument>
@@ -627,17 +625,19 @@ void SetupVenues(
 		found.match([&](const auto &data) {
 			data.vsend_message().match([&](
 					const MTPDbotInlineMessageMediaVenue &data) {
-				data.vgeo().match([&](const MTPDgeoPoint &geo) {
-					result.list.push_back({
-						.lat = geo.vlat().v,
-						.lon = geo.vlong().v,
-						.title = qs(data.vtitle()),
-						.address = qs(data.vaddress()),
-						.provider = qs(data.vprovider()),
-						.id = qs(data.vvenue_id()),
-						.venueType = qs(data.vvenue_type()),
-					});
-				}, [](const auto &) {});
+				const auto point = Data::LocationPoint::FromMTP(data.vgeo());
+				if (!point) {
+					return;
+				}
+				result.list.push_back({
+					.lat = point->lat(),
+					.lon = point->lon(),
+					.title = qs(data.vtitle()),
+					.address = qs(data.vaddress()),
+					.provider = qs(data.vprovider()),
+					.id = qs(data.vvenue_id()),
+					.venueType = qs(data.vvenue_type()),
+				});
 			}, [](const auto &) {});
 		});
 	}
@@ -765,6 +765,10 @@ LocationPicker::LocationPicker(Descriptor &&descriptor)
 	std::move(
 		descriptor.closeRequests
 	) | rpl::on_next([=] {
+		// Close the webview before the panel: destroying the widget tree
+		// calls DestroyWindow() on the HWND the WebView2 controller is
+		// still attached to, which re-enters the window procedure.
+		base::take(_webview);
 		_window = nullptr;
 		delete this;
 	}, _lifetime);
@@ -893,6 +897,7 @@ void LocationPicker::setupWebview() {
 		Webview::WindowConfig{
 			.opaqueBg = st::windowBg->c,
 			.storageId = _webviewStorageId,
+			.dataRequestRedirectHost = u"api.mapbox.com"_q,
 			.safe = true,
 		});
 	const auto raw = _webview.get();
@@ -954,7 +959,7 @@ void LocationPicker::setupWebview() {
 		raw->widget()->setGeometry(QRect(QPoint(), size));
 	}, _container->lifetime());
 
-	raw->setNavigationStartHandler([=](const QString &uri, bool newWindow) {
+	raw->setNavigationPolicyHandler([=](const QString &uri, bool newWindow) {
 		return true;
 	});
 	raw->setNavigationDoneHandler([=](bool success) {
@@ -1164,7 +1169,7 @@ bool LocationPicker::venuesFromCache(
 		Core::GeoLocation location,
 		QString query) {
 	const auto normalized = NormalizeVenuesQuery(query);
-	auto &cache = _venuesCache[normalized];
+	const auto &cache = _venuesCache[normalized];
 	const auto i = ranges::find_if(cache, [&](const VenuesCacheEntry &v) {
 		return AreTheSame(v.location, location);
 	});
@@ -1203,7 +1208,7 @@ void LocationPicker::venuesRequest(
 		MTP_string(username),
 		MTP_string()
 	)).done([=](const MTPcontacts_ResolvedPeer &result) {
-		auto &data = result.data();
+		const auto &data = result.data();
 		_session->data().processUsers(data.vusers());
 		_session->data().processChats(data.vchats());
 		const auto peer = _session->data().peerLoaded(
@@ -1350,6 +1355,10 @@ void LocationPicker::activate() {
 
 void LocationPicker::close() {
 	crl::on_main(this, [=] {
+		// Close the webview before the panel: destroying the widget tree
+		// calls DestroyWindow() on the HWND the WebView2 controller is
+		// still attached to, which re-enters the window procedure.
+		base::take(_webview);
 		_window = nullptr;
 		delete this;
 	});

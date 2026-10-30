@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "data/data_cloud_file.h"
+#include "data/data_file_origin.h"
 #include "data/data_poll.h"
 #include "history/history_item.h"
 #include "spellcheck/spellcheck_types.h" // LanguageId.
@@ -22,6 +23,7 @@ struct WebPageData;
 struct TodoListItem;
 class DocumentData;
 class PhotoData;
+class ChannelData;
 class VoiceSeekClickHandler;
 class ReplyKeyboard;
 
@@ -57,6 +59,7 @@ struct CornersMaskRef;
 
 namespace Iv {
 struct RichPage;
+struct RichQuote;
 } // namespace Iv
 
 namespace HistoryView {
@@ -155,6 +158,8 @@ struct HistoryMessageRichPageSource
 : RuntimeComponent<HistoryMessageRichPageSource, HistoryItem> {
 	std::shared_ptr<const Iv::RichPage> page;
 	std::shared_ptr<const Iv::RichPage> fullPage;
+	base::flat_map<QByteArray, HistoryMessageMarkupButton> buttonRecords;
+	std::optional<Data::FileOriginCloudDraft> draftOrigin;
 	uint64 fullPageVersion = 0;
 	bool canEdit = false;
 };
@@ -201,6 +206,9 @@ struct HistoryMessageForwarded
 	void create(
 		const HistoryMessageVia *via,
 		not_null<const HistoryItem*> item) const;
+	[[nodiscard]] TextWithEntities phrase(
+		const HistoryMessageVia *via,
+		TextWithEntities userpic = {}) const;
 
 	[[nodiscard]] bool forwardOfForward() const {
 		return savedFromSender || savedFromHiddenSenderInfo;
@@ -319,8 +327,11 @@ private:
 
 struct ReplyFields {
 	[[nodiscard]] ReplyFields clone(not_null<HistoryItem*> parent) const;
+	[[nodiscard]] const TextWithEntities &displayQuote() const;
+	[[nodiscard]] MessageHighlightId highlight() const;
 
 	TextWithEntities quote;
+	std::shared_ptr<const Iv::RichQuote> richQuote;
 	std::unique_ptr<Data::Media> externalMedia;
 	PeerId externalSenderId = 0;
 	QString externalSenderName;
@@ -436,6 +447,7 @@ private:
 struct HistoryMessageTranslation
 : RuntimeComponent<HistoryMessageTranslation, HistoryItem> {
 	TextWithEntities text;
+	std::shared_ptr<const Iv::RichPage> richPage;
 	LanguageId to;
 	bool requested = false;
 	bool failed = false;
@@ -628,20 +640,15 @@ private:
 		int j = 0;
 	};
 
-	void startAnimation(int i, int j, int direction);
 	[[nodiscard]] bool hasFastButtonMode() const;
 
 	ButtonCoords findButtonCoordsByClickHandler(const ClickHandlerPtr &p);
-
-	bool selectedAnimationCallback(crl::time now);
 
 	const not_null<const HistoryItem*> _item;
 	int _width = 0;
 
 	std::vector<std::vector<Button>> _rows;
 
-	base::flat_map<int, crl::time> _animations;
-	Ui::Animations::Basic _selectedAnimation;
 	std::unique_ptr<Style> _st;
 
 	ClickHandlerPtr _savedPressed;
@@ -821,6 +828,20 @@ struct HistoryServiceNoForwardsToggle
 : RuntimeComponent<HistoryServiceNoForwardsToggle, HistoryItem> {
 };
 
+struct HistoryServiceCommunityAdded
+: RuntimeComponent<HistoryServiceCommunityAdded, HistoryItem> {
+	ChannelId communityId = 0;
+	ChannelData *community = nullptr;
+	rpl::lifetime lifetime;
+};
+
+struct HistoryServiceJoinedViaCommunity
+: RuntimeComponent<HistoryServiceJoinedViaCommunity, HistoryItem> {
+	ChannelId communityId = 0;
+	ChannelData *community = nullptr;
+	rpl::lifetime lifetime;
+};
+
 struct HistoryServiceGameScore
 : RuntimeComponent<HistoryServiceGameScore, HistoryItem>
 , HistoryServiceDependentData {
@@ -862,6 +883,30 @@ struct HistoryServicePaymentRefund
 	uint64 amount = 0;
 };
 
+struct HistoryServiceGramTransfer
+: RuntimeComponent<HistoryServiceGramTransfer, HistoryItem> {
+	[[nodiscard]] QString commentText() const;
+
+	int64 amount = 0;
+	QString peerAddress;
+	QString transactionId;
+	QString comment;
+	QString failReason;
+	bool commentEncrypted = false;
+};
+
+struct HistoryServiceTonConnectRequest
+: RuntimeComponent<HistoryServiceTonConnectRequest, HistoryItem> {
+	uint64 sessionId = 0;
+	QString topic;
+	QString dappName;
+	TextWithEntities notificationText;
+	rpl::lifetime lifetime;
+	TimeId expires = 0;
+	bool accepted = false;
+	bool declined = false;
+};
+
 enum class HistorySelfDestructType {
 	Photo,
 	Video,
@@ -881,8 +926,8 @@ struct HistoryServiceSelfDestruct
 	using Type = HistorySelfDestructType;
 
 	Type type = Type::Photo;
-	std::variant<crl::time, TimeToLiveSingleView> timeToLive = crl::time();
-	std::variant<crl::time, TimeToLiveSingleView> destructAt = crl::time();
+	std::variant<TimeId, TimeToLiveSingleView> timeToLive = TimeId();
+	std::variant<TimeId, TimeToLiveSingleView> destructAt = TimeId();
 };
 
 struct HistoryServiceOngoingCall
@@ -946,6 +991,9 @@ class HistoryDocumentVoice
 	static constexpr float64 kFloatToIntMultiplier = 65536.;
 
 public:
+	HistoryDocumentVoice &operator=(HistoryDocumentVoice &&other);
+	~HistoryDocumentVoice();
+
 	void ensurePlayback(const HistoryView::Document *interfaces) const;
 	void checkPlaybackFinished() const;
 

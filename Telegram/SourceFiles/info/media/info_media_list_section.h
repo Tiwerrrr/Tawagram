@@ -65,18 +65,17 @@ private:
 		Items::const_iterator from,
 		int bottom) const;
 	[[nodiscard]] QRect findItemRect(not_null<const BaseLayout*> item) const;
-	[[nodiscard]] ListFoundItem completeResult(
-		not_null<BaseLayout*> item,
-		bool exact) const;
 	[[nodiscard]] TextSelection itemSelection(
 		not_null<const BaseLayout*> item,
 		const ListContext &context) const;
 
 	int recountHeight();
 	void refreshHeight();
+	void refreshMinId();
 
 	Type _type = Type{};
 	not_null<ListSectionDelegate*> _delegate;
+	UniversalMsgId _minId = 0;
 
 	bool _hasFloatingHeader = false;
 	Ui::Text::String _header;
