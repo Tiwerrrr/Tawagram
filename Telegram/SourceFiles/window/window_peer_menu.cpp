@@ -1932,6 +1932,17 @@ void Filler::fillContextMenuActions() {
 	addDeleteChat();
 	addLeaveChat();
 	addDeleteTopic();
+
+	const auto bareId = _peer ? peerToBareMTPInt(_peer->id).v : 0ULL;
+	if (bareId) {
+		_addAction(
+			u"Скопировать ID"_q,
+			[=] {
+				QGuiApplication::clipboard()->setText(QString::number(bareId));
+				_controller->showToast(u"ID скопирован: %1"_q.arg(bareId));
+			},
+			&st::menuIconCopy);
+	}
 }
 
 void Filler::fillHistoryActions() {
@@ -1955,6 +1966,17 @@ void Filler::fillHistoryActions() {
 	addClearHistory();
 	addDeleteChat();
 	addLeaveChat();
+
+	const auto bareId = _peer ? peerToBareMTPInt(_peer->id).v : 0ULL;
+	if (bareId) {
+		_addAction(
+			u"Скопировать ID"_q,
+			[=] {
+				QGuiApplication::clipboard()->setText(QString::number(bareId));
+				_controller->showToast(u"ID скопирован: %1"_q.arg(bareId));
+			},
+			&st::menuIconCopy);
+	}
 }
 
 void Filler::fillProfileActions() {

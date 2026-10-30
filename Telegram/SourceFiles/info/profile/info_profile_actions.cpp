@@ -1898,6 +1898,29 @@ Section DetailsFiller::makeInfo() {
 			SetupAboutPeerIdDrag(about.text, _peer);
 		}
 	}
+
+	const auto bareId = peerToBareMTPInt(_peer->id).v;
+	if (bareId) {
+		const auto idStr = QString::number(bareId);
+		const auto idLine = addInfoOneLine(
+			rpl::single(u"ID"_q),
+			rpl::single(TextWithEntities{ idStr }),
+			u"Скопировать ID"_q,
+			st::infoProfileLabeledPadding,
+			st::popupMenuWithIcons);
+		const auto idLabel = idLine.text;
+		idLabel->setContextMenuHook([=](Ui::FlatLabel::ContextMenuRequest req) {
+			req.menu->addAction(
+				u"Скопировать ID"_q,
+				[=] { QGuiApplication::clipboard()->setText(idStr); },
+				&st::menuIconCopy);
+			req.menu->addAction(
+				u"Скопировать tg://user?id="_q,
+				[=] { QGuiApplication::clipboard()->setText(u"tg://user?id="_q + idStr); },
+				&st::menuIconCopy);
+		});
+	}
+
 	raw->toggleOn(tracker.atLeastOneShownValue());
 	raw->finishAnimating();
 

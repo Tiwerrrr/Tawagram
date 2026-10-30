@@ -7,6 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/text/format_values.h"
 
+#include "core/application.h"
+#include "core/core_settings.h"
+
 #include "base/unixtime.h"
 #include "lang/lang_keys.h"
 #include "countries/countries_instance.h"
@@ -607,6 +610,9 @@ QString FormatImageSizeText(const QSize &size) {
 QString FormatPhone(QString phone) {
 	if (phone.isEmpty()) {
 		return QString();
+	}
+	if (Core::App().settings().readPref<bool>("streamer_mode", false)) {
+		return u"+• ••• ••• •• ••"_q;
 	}
 	if (phone.at(0) == '0') {
 		return phone;

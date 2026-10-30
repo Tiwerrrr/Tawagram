@@ -1234,6 +1234,45 @@ void BuildGhostModeSection(SectionBuilder &builder) {
 		}, saveViewOnce->lifetime());
 	}
 
+	const auto hideTyping = builder.addButton({
+		.id = u"ghost/hide_typing"_q,
+		.title = rpl::single(u"Скрывать статус набора текста (Печатает... / Записывает...)"_q),
+		.st = &st::settingsButtonNoIcon,
+		.toggled = Core::App().settings().readPref<bool>("ghost_hide_typing", true),
+	});
+	if (hideTyping) {
+		hideTyping->toggledChanges() | rpl::on_next([](bool val) {
+			Core::App().settings().writePref<bool>("ghost_hide_typing", val);
+			Core::App().saveSettingsDelayed();
+		}, hideTyping->lifetime());
+	}
+
+	const auto bypassRestrict = builder.addButton({
+		.id = u"ghost/bypass_restrict"_q,
+		.title = rpl::single(u"Разрешить сохранение контента из закрытых каналов (No-Forwards)"_q),
+		.st = &st::settingsButtonNoIcon,
+		.toggled = Core::App().settings().readPref<bool>("bypass_restrict_content", true),
+	});
+	if (bypassRestrict) {
+		bypassRestrict->toggledChanges() | rpl::on_next([](bool val) {
+			Core::App().settings().writePref<bool>("bypass_restrict_content", val);
+			Core::App().saveSettingsDelayed();
+		}, bypassRestrict->lifetime());
+	}
+
+	const auto streamerMode = builder.addButton({
+		.id = u"ghost/streamer_mode"_q,
+		.title = rpl::single(u"Режим стримера (скрывать номер телефона)"_q),
+		.st = &st::settingsButtonNoIcon,
+		.toggled = Core::App().settings().readPref<bool>("streamer_mode", false),
+	});
+	if (streamerMode) {
+		streamerMode->toggledChanges() | rpl::on_next([](bool val) {
+			Core::App().settings().writePref<bool>("streamer_mode", val);
+			Core::App().saveSettingsDelayed();
+		}, streamerMode->lifetime());
+	}
+
 	builder.addButton({
 		.id = u"ghost/custom_deleted_mark"_q,
 		.title = rpl::single(u"\xD0\x9C\xD0\xB5\xD1\x82\xD0\xBA\xD0\xB0 \xD1\x83\xD0\xB4\xD0\xB0\xD0\xBB\xD1\x91\xD0\xBD\xD0\xBD\xD1\x8B\xD1\x85 \xD1\x81\xD0\xBE\xD0\xBE\xD0\xB1\xD1\x89\xD0\xB5\xD0\xBD\xD0\xB8\xD0\xB9"_q),

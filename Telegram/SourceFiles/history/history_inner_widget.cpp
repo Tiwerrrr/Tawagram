@@ -3063,6 +3063,31 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				}
 			}, &st::menuIconEdit);
 		}
+		const auto edits = HistoryItem::GetEditHistory(item->fullId());
+		if (!edits.empty()) {
+			_menu->addAction(
+				u"История изменений (%1)"_q.arg(edits.size()),
+				[=] {
+					controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+						box->setTitle(rpl::single(u"История изменений"_q));
+						for (int i = 0; i < int(edits.size()); ++i) {
+							const auto &rec = edits[i];
+							const auto timeStr = base::unixtime::parse(rec.date).toString(u"dd.MM.yyyy hh:mm:ss"_q);
+							box->addRow(object_ptr<Ui::FlatLabel>(
+								box,
+								rpl::single(u"Версия #%1 (%2):"_q.arg(i + 1).arg(timeStr)),
+								st::defaultFlatLabel));
+							box->addRow(object_ptr<Ui::FlatLabel>(
+								box,
+								rpl::single(rec.text),
+								st::defaultFlatLabel));
+							box->addSkip();
+						}
+						box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+					}));
+				},
+				&st::menuIconEdit);
+		}
 		if (session->factchecks().canEdit(item)) {
 			const auto text = item->factcheckText();
 			const auto phrase = text.empty()

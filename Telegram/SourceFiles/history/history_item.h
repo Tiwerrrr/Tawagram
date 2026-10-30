@@ -495,6 +495,13 @@ public:
 	[[nodiscard]] bool canPin() const;
 	[[nodiscard]] bool canBeEdited() const;
 	[[nodiscard]] bool canStopPoll() const;
+	struct EditRecord {
+		QString text;
+		TimeId date = 0;
+	};
+	[[nodiscard]] static std::vector<EditRecord> GetEditHistory(FullMsgId id);
+	static void RecordEdit(FullMsgId id, const QString &text, TimeId date);
+
 	[[nodiscard]] bool forbidsForward() const;
 	[[nodiscard]] bool forbidsSaving() const;
 	[[nodiscard]] bool allowsSendNow() const;

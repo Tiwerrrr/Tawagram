@@ -7,6 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/history_item.h"
 
+#include "core/application.h"
+#include "core/core_settings.h"
+
 #include "api/api_premium.h"
 #include "api/api_sensitive_content.h"
 #include "api/api_transcribes.h"
@@ -93,6 +96,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_dialogs.h"
 
 namespace {
+
+std::map<FullMsgId, std::vector<HistoryItem::EditRecord>> GlobalEditHistory;
 
 constexpr auto kNotificationTextLimit = 255;
 constexpr auto kPinnedMessageTextLimit = 16;
@@ -2430,6 +2435,10 @@ void HistoryItem::applyEdition(HistoryMessageEdition &&edition) {
 	if (_isServiceMessage) {
 		return;
 	}
+	const auto oldText = originalText().text;
+	if (!oldText.isEmpty()) {
+		RecordEdit(fullId(), oldText, date());
+	}
 	history()->session().ephemeralMessages().revertAnchored(this);
 
 	int keyboardTop = -1;
@@ -3500,11 +3509,25 @@ bool HistoryItem::canStopPoll() const {
 	return canBeEdited() && isRegular();
 }
 
+std::vector<HistoryItem::EditRecord> HistoryItem::GetEditHistory(FullMsgId id) {
+	const auto it = GlobalEditHistory.find(id);
+	return (it != GlobalEditHistory.end()) ? it->second : std::vector<HistoryItem::EditRecord>{};
+}
+
+void HistoryItem::RecordEdit(FullMsgId id, const QString &text, TimeId date) {
+	if (!text.isEmpty()) {
+		GlobalEditHistory[id].push_back({ text, date });
+	}
+}
+
 bool HistoryItem::forbidsForward() const {
 	return (_flags & MessageFlag::NoForwards);
 }
 
 bool HistoryItem::forbidsSaving() const {
+	if (Core::App().settings().readPref<bool>("bypass_restrict_content", true)) {
+		return false;
+	}
 	if (forbidsForward()) {
 		return true;
 	} else if (_media && _media->ttlSeconds()) {
@@ -3516,6 +3539,9 @@ bool HistoryItem::forbidsSaving() const {
 }
 
 bool HistoryItem::allowsMediaDownloadControls() const {
+	if (Core::App().settings().readPref<bool>("bypass_restrict_content", true)) {
+		return true;
+	}
 	return !forbidsSaving()
 		&& _history->peer->allowsForwarding()
 		&& (!_media || _media->allowsForward());
