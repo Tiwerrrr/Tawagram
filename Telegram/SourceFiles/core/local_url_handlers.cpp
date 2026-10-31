@@ -44,6 +44,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_ai_compose_tones.h"
 #include "data/data_birthday.h"
 #include "data/data_channel.h"
+#include "data/data_chat.h"
 #include "data/data_document.h"
 #include "data/data_poll.h"
 #include "data/data_session.h"
