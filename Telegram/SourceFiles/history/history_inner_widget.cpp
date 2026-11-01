@@ -3083,7 +3083,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 								box,
 								rpl::single(rec.text),
 								st::defaultFlatLabel));
-							box->addSkip();
+							box->addSkip(10);
 						}
 						box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 					}));
