@@ -1147,7 +1147,7 @@ void BuildGhostModeSection(SectionBuilder &builder) {
 		.id = u"ghost/master"_q,
 		.title = rpl::single(u"\xD0\x92\xD0\xBA\xD0\xBB\xD1\x8E\xD1\x87\xD0\xB8\xD1\x82\xD1\x8C \xD1\x80\xD0\xB5\xD0\xB6\xD0\xB8\xD0\xBC \xD0\xBF\xD1\x80\xD0\xB8\xD0\xB7\xD1\x80\xD0\xB0\xD0\xBA\xD0\xB0"_q),
 		.st = &st::settingsButtonNoIcon,
-		.toggled = Core::App().settings().readPref<bool>("ghost_mode", true),
+		.toggled = rpl::single(Core::App().settings().readPref<bool>("ghost_mode", true)),
 	});
 	if (masterToggle) {
 		masterToggle->toggledChanges() | rpl::on_next([](bool val) {
@@ -1160,7 +1160,7 @@ void BuildGhostModeSection(SectionBuilder &builder) {
 		.id = u"ghost/hide_online"_q,
 		.title = rpl::single(u"\xD0\xA1\xD0\xBA\xD1\x80\xD1\x8B\xD0\xB2\xD0\xB0\xD1\x82\xD1\x8C \xD1\x81\xD1\x82\xD0\xB0\xD1\x82\xD1\x83\xD1\x81 \xC2\xAB\xD0\x92 \xD1\x81\xD0\xB5\xD1\x82\xD0\xB8\xC2\xBB (\xD0\x92\xD1\x81\xD0\xB5\xD0\xB3\xD0\xB4\xD0\xB0 \xD0\xBE\xD1\x84\xD1\x84\xD0\xBB\xD0\xB0\xD0\xB9\xD0\xBD)"_q),
 		.st = &st::settingsButtonNoIcon,
-		.toggled = Core::App().settings().readPref<bool>("ghost_hide_online", true),
+		.toggled = rpl::single(Core::App().settings().readPref<bool>("ghost_hide_online", true)),
 	});
 	if (hideOnline) {
 		hideOnline->toggledChanges() | rpl::on_next([](bool val) {
@@ -1173,7 +1173,7 @@ void BuildGhostModeSection(SectionBuilder &builder) {
 		.id = u"ghost/dont_read"_q,
 		.title = rpl::single(u"\xD0\x9D\xD0\xB5 \xD0\xBE\xD1\x82\xD0\xBC\xD0\xB5\xD1\x87\xD0\xB0\xD1\x82\xD1\x8C \xD1\x81\xD0\xBE\xD0\xBE\xD0\xB1\xD1\x89\xD0\xB5\xD0\xBD\xD0\xB8\xD1\x8F \xD0\xBF\xD1\x80\xD0\xBE\xD1\x87\xD0\xB8\xD1\x82\xD0\xB0\xD0\xBD\xD0\xBD\xD1\x8B\xD0\xBC\xD0\xB8"_q),
 		.st = &st::settingsButtonNoIcon,
-		.toggled = Core::App().settings().readPref<bool>("ghost_dont_read", true),
+		.toggled = rpl::single(Core::App().settings().readPref<bool>("ghost_dont_read", true)),
 	});
 	if (dontRead) {
 		dontRead->toggledChanges() | rpl::on_next([](bool val) {
@@ -1186,7 +1186,7 @@ void BuildGhostModeSection(SectionBuilder &builder) {
 		.id = u"ghost/read_on_action"_q,
 		.title = rpl::single(u"\xD0\xA7\xD0\xB8\xD1\x82\xD0\xB0\xD1\x82\xD1\x8C \xD0\xBF\xD1\x80\xD0\xB8 \xD0\xBE\xD1\x82\xD0\xBF\xD1\x80\xD0\xB0\xD0\xB2\xD0\xBA\xD0\xB5 \xD0\xBE\xD1\x82\xD0\xB2\xD0\xB5\xD1\x82\xD0\xB0 \xD0\xB2 \xD1\x87\xD0\xB0\xD1\x82"_q),
 		.st = &st::settingsButtonNoIcon,
-		.toggled = Core::App().settings().readPref<bool>("ghost_read_on_action", false),
+		.toggled = rpl::single(Core::App().settings().readPref<bool>("ghost_read_on_action", false)),
 	});
 	if (readOnAction) {
 		readOnAction->toggledChanges() | rpl::on_next([](bool val) {
@@ -1199,7 +1199,7 @@ void BuildGhostModeSection(SectionBuilder &builder) {
 		.id = u"ghost/hide_stories"_q,
 		.title = rpl::single(u"\xD0\xA1\xD0\xBA\xD1\x80\xD1\x8B\xD0\xB2\xD0\xB0\xD1\x82\xD1\x8C \xD0\xBF\xD1\x80\xD0\xBE\xD1\x81\xD0\xBC\xD0\xBE\xD1\x82\xD1\x80 \xD0\xB8\xD1\x81\xD1\x82\xD0\xBE\xD1\x80\xD0\xB8\xD0\xB9 (Stories)"_q),
 		.st = &st::settingsButtonNoIcon,
-		.toggled = Core::App().settings().readPref<bool>("ghost_hide_stories", true),
+		.toggled = rpl::single(Core::App().settings().readPref<bool>("ghost_hide_stories", true)),
 	});
 	if (hideStories) {
 		hideStories->toggledChanges() | rpl::on_next([](bool val) {
@@ -1212,7 +1212,7 @@ void BuildGhostModeSection(SectionBuilder &builder) {
 		.id = u"ghost/save_deleted_file"_q,
 		.title = rpl::single(u"\xD0\x97\xD0\xB0\xD0\xBF\xD0\xB8\xD1\x81\xD1\x8B\xD0\xB2\xD0\xB0\xD1\x82\xD1\x8C \xD1\x83\xD0\xB4\xD0\xB0\xD0\xBB\xD1\x91\xD0\xBD\xD0\xBD\xD1\x8B\xD0\xB5 \xD1\x81\xD0\xBE\xD0\xBE\xD0\xB1\xD1\x89\xD0\xB5\xD0\xBD\xD0\xB8\xD1\x8F \xD0\xB2 \xD1\x84\xD0\xB0\xD0\xB9\xD0\xBB (deleted_messages.txt)"_q),
 		.st = &st::settingsButtonNoIcon,
-		.toggled = Core::App().settings().readPref<bool>("ghost_save_deleted_file", true),
+		.toggled = rpl::single(Core::App().settings().readPref<bool>("ghost_save_deleted_file", true)),
 	});
 	if (saveDeletedFile) {
 		saveDeletedFile->toggledChanges() | rpl::on_next([](bool val) {
@@ -1225,7 +1225,7 @@ void BuildGhostModeSection(SectionBuilder &builder) {
 		.id = u"ghost/save_view_once"_q,
 		.title = rpl::single(u"\xD0\x9D\xD0\xB5 \xD1\x83\xD0\xBD\xD0\xB8\xD1\x87\xD1\x82\xD0\xBE\xD0\xB6\xD0\xB0\xD1\x82\xD1\x8C \xD0\xBE\xD0\xB4\xD0\xBD\xD0\xBE\xD1\x80\xD0\xB0\xD0\xB7\xD0\xBE\xD0\xB2\xD1\x8B\xD0\xB5 \xD1\x84\xD0\xBE\xD1\x82\xD0\xBE \xD0\xB8 \xD0\xB2\xD0\xB8\xD0\xB4\xD0\xB5\xD0\xBE"_q),
 		.st = &st::settingsButtonNoIcon,
-		.toggled = Core::App().settings().readPref<bool>("ghost_save_view_once", true),
+		.toggled = rpl::single(Core::App().settings().readPref<bool>("ghost_save_view_once", true)),
 	});
 	if (saveViewOnce) {
 		saveViewOnce->toggledChanges() | rpl::on_next([](bool val) {
@@ -1238,7 +1238,7 @@ void BuildGhostModeSection(SectionBuilder &builder) {
 		.id = u"ghost/hide_typing"_q,
 		.title = rpl::single(u"Скрывать статус набора текста (Печатает... / Записывает...)"_q),
 		.st = &st::settingsButtonNoIcon,
-		.toggled = Core::App().settings().readPref<bool>("ghost_hide_typing", true),
+		.toggled = rpl::single(Core::App().settings().readPref<bool>("ghost_hide_typing", true)),
 	});
 	if (hideTyping) {
 		hideTyping->toggledChanges() | rpl::on_next([](bool val) {
@@ -1251,7 +1251,7 @@ void BuildGhostModeSection(SectionBuilder &builder) {
 		.id = u"ghost/bypass_restrict"_q,
 		.title = rpl::single(u"Разрешить сохранение контента из закрытых каналов (No-Forwards)"_q),
 		.st = &st::settingsButtonNoIcon,
-		.toggled = Core::App().settings().readPref<bool>("bypass_restrict_content", true),
+		.toggled = rpl::single(Core::App().settings().readPref<bool>("bypass_restrict_content", true)),
 	});
 	if (bypassRestrict) {
 		bypassRestrict->toggledChanges() | rpl::on_next([](bool val) {
@@ -1264,7 +1264,7 @@ void BuildGhostModeSection(SectionBuilder &builder) {
 		.id = u"ghost/streamer_mode"_q,
 		.title = rpl::single(u"Режим стримера (скрывать номер телефона)"_q),
 		.st = &st::settingsButtonNoIcon,
-		.toggled = Core::App().settings().readPref<bool>("streamer_mode", false),
+		.toggled = rpl::single(Core::App().settings().readPref<bool>("streamer_mode", false)),
 	});
 	if (streamerMode) {
 		streamerMode->toggledChanges() | rpl::on_next([](bool val) {
@@ -1335,7 +1335,7 @@ void BuildPluginsSection(SectionBuilder &builder) {
 			.id = u"plugins/item_"_q + id,
 			.title = rpl::single(title),
 			.st = &st::settingsButtonNoIcon,
-			.toggled = plugin.enabled,
+			.toggled = rpl::single(plugin.enabled),
 		});
 		if (toggle) {
 			toggle->toggledChanges() | rpl::on_next([=](bool val) {

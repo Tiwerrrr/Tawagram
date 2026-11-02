@@ -290,7 +290,7 @@ void Manager::applyPluginStylesheets() {
 		}
 	}
 
-	if (const auto app = QApplication::instance()) {
+	if (const auto app = static_cast<QApplication*>(QApplication::instance())) {
 		app->setStyleSheet(combined);
 	}
 }
